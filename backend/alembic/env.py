@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.core.config import get_settings
 from app.db.database import Base
 
-# 后续里程碑添加模型后，在此引入以让 autogenerate 感知：
-# from app.models import issue, repository, ...  # noqa: F401
+# 引入所有 ORM 模型让 autogenerate 感知（聚合在 app.models.__init__）
+import app.models  # noqa: F401
 
 config = context.config
 
