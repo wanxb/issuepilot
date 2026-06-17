@@ -244,6 +244,9 @@ agents:
 | DeepSeek 中转返回的 `total_cost_usd` 是 Anthropic 价格估算，非真实计费 | 数据层 `llm_call_logs.cost_usd` 字段对 fallback 调用打标记 `is_fallback=true`，月底用真实账单核对 |
 | 备用 API 也故障 | 不做三级 fallback，直接抛错让 task 进入 `DEV_FAILED` 等人工 |
 | 用户密钥/费用泄漏到错的 provider | `LLMClient` 严格使用 `api_key_env` / `auth_token_env` 字段，不读 fallback 之外的环境变量 |
+| **proxy 限定 Claude Code CLI 流量**（1.2c 真实发现：用户当前 proxy 只接 CLI，SDK 调用返回 503 "this group only allows Claude Code clients"） | Agent A/C/D（用 anthropic SDK）不能走该 proxy，需直连 Anthropic 或换 SDK-friendly 中转；Agent B（CLI headless）继续可用 proxy |
+| **DeepSeek thinking mode 不支持 `tool_choice` 强制选工具**（1.2c 真实发现：返回 400 "Thinking mode does not support this tool_choice"） | Agent A/C/D 的 Tool Use 让模型自己决定调用，不用 `tool_choice={"type":"tool",...}` 强制；prompt 里明确指令调哪个工具 |
+| **DeepSeek 返回的 usage 字段在中转后丢失**（cost_usd=0） | 不依赖 cost_usd 字段做计费；按 token 用量在 LLMClient 侧估算（已实现）|
 
 ### 7.4 可观测性
 
