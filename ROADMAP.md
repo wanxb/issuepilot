@@ -14,18 +14,19 @@
 
 **目标：** 能从 Issue 发现到 PR 提交完整跑通一个真实案例
 
-### 里程碑 1.0 — Agent B PoC 验证（开发前置）
+### 里程碑 1.0 — Agent B PoC 验证（开发前置）✅ 已完成 2026-06-17
 
-> **必须在其他里程碑开始前完成。** Agent B 使用 Claude Code CLI headless 模式是整个架构最核心的假设，MVP 能否成立取决于此。
+> **已通过。** 详细报告 `docs/POC_AGENT_B_REPORT.md`。
 
-- [ ] 验证 Claude Code CLI headless 模式的基本调用方式（`--print` / `--output-format json`）
-- [ ] 验证 `--allowedTools` 参数是否能限制 Agent B 的工具访问范围
-- [ ] 验证 Docker 容器内 Claude Code CLI 能否正常运行（网络、认证）
-- [ ] 验证 Issue body 含 Prompt Injection 内容时，Tool Use 结构化输出是否仍然稳定
-- [ ] 验证 `report_completion` / `report_failure` 自定义工具能否注入并被模型调用
-- [ ] 输出 PoC 报告，决策是否继续使用该方案或切换（如 Anthropic SDK 直接调用）
+- [x] 验证 Claude Code CLI headless 模式的基本调用方式（`--print` / `--output-format json`）
+- [x] 验证 `--allowedTools` 参数是否能限制 Agent B 的工具访问范围
+- [x] 验证 Docker 容器内 Claude Code CLI 能否正常运行（网络、认证）
+- [x] 验证 Issue body 含 Prompt Injection 内容时，Tool Use 结构化输出是否仍然稳定
+- [x] 验证 `report_completion` / `report_failure` 自定义工具能否注入并被模型调用（MCP stdio server）
+- [x] **额外验证**：DeepSeek-V4-Pro 的 Anthropic 兼容接口可作为 Agent B 兜底 provider
+- [x] 输出 PoC 报告
 
-**PoC 通过标准：** 在 Docker 容器内，Claude Code CLI 能完整执行"克隆仓库 → 修改文件 → 运行测试 → 调用终止工具"的完整流程。
+**PoC 关键数字：** Sonnet 4.6 clean run 9 turns / 49.6s / $0.22；injection run 9 turns / 37s / $0.11，零绕过。
 
 ### 里程碑 1.1 — 基础设施
 
@@ -35,11 +36,15 @@
 - [ ] Celery 任务队列接通 Redis
 - [ ] Next.js 前端骨架 + API 代理配置
 
-### 里程碑 1.2 — Crawler + Agent A
+### 里程碑 1.2 — Crawler + Agent A + 手动输入入口
 
-- [ ] GitHub API 客户端（Issue 抓取、仓库信息）
-- [ ] Crawler Service（手动触发 + 去重逻辑）
-- [ ] LLMClient 抽象层（Anthropic 实现）
+- [ ] GitHub API 客户端（Issue 抓取、仓库信息、PR 列表预取）
+- [ ] CrawlerService（cron 触发 + 去重逻辑）
+- [ ] **手动 URL 入口**：POST `/crawl-jobs/manual`（支持 repo URL / issue URL，默认上限 50，dedup 复用旧评估）
+- [ ] **看板 URL 输入框**（前端组件 + 确认对话框）
+- [ ] LLMClient 抽象层（Anthropic 实现 + DeepSeek Anthropic 兼容兜底 wrapper）
+- [ ] `llm_call_logs` 表 + 调用埋点（含 `is_fallback` / `cost_usd` / `error_code`）
+- [ ] 单次调用级 retry + provider 切换（混合策略中的"单次调用级"部分，见 ARCHITECTURE.md §7.1）
 - [ ] Agent A Harness（SingleShotLoop + Tool Use 结构化输出）
 - [ ] Agent A Prompt v1.0
 - [ ] analyze_worker（Celery）
@@ -64,17 +69,25 @@
 - [ ] WebSocket 日志推送（Redis PubSub → 前端）
 - [ ] 看板开发进度展示（基础日志流）
 
-### 里程碑 1.5 — Agent C + PR 提交
+### 里程碑 1.5 — Agent C + Agent D（RepoOnboarding）+ PR 提交 + PR 链路数据采集
 
 - [ ] Agent C Harness（SingleShotLoop）
-- [ ] Agent C Prompt v1.0
+- [ ] Agent C Prompt v1.0（system prompt 注入 `repo_profile.code_style_notes`，`code_style` 评分直接对比 profile）
 - [ ] review_worker（Celery）
+- [ ] **Agent D Harness**（SingleShotLoop，复用 agent-sandbox-{lang} 镜像，窄 allowedTools）
+- [ ] **Agent D Prompt v1.0**
+- [ ] **`repo_profiles` 表 + profile_queue + profile_worker**（异步生成，TTL 90 天）
+- [ ] **CrawlerService 在 upsert 新 repo 时入 profile_queue**（不阻塞 analyze_queue）
+- [ ] **Agent B system prompt 注入 profile**（profile 缺失时降级自学习，PoC 流程不变）
 - [ ] PR Service（GitHub API 创建 PR）
-- [ ] GitHub Webhook 接收（PR merge / close）
+- [ ] GitHub Webhook 接收（PR merge / close / review）
+- [ ] **PRTracker Service**——把 PR 生命周期事件写入 `pr_outcomes` 表
+- [ ] **rejection_reasons 表**：Agent C 退回时写 source=agent_c 记录（含 dimension + agent_b_attribution）
 - [ ] Issue 状态流转（PR_SUBMITTED → PR_MERGED / PR_CLOSED）
+- [ ] `pull_requests.final_outcome` 字段写入（MERGED_CLEAN / CLOSED_BY_MAINTAINER / ...）
 - [ ] 看板 PR 状态显示
 
-**Phase 1 完成标志：** 选择一个真实 Python 仓库 Issue，系统能自动完成从评估到提交 PR 的全流程。
+**Phase 1 完成标志：** 选择一个真实 Python 仓库 Issue（或粘贴 URL 手动触发），系统能自动完成"profile 生成 → 评估 → 开发（注入 profile）→ 评审（对比 profile）→ 提交 PR"全流程，PR 链路结果与 Agent C 退回原因结构化入库。
 
 ---
 
@@ -96,10 +109,15 @@
 - [ ] APScheduler 定时任务（可配置 cron）
 - [ ] 抓取日志页（看板）
 
-### 里程碑 2.3 — 边界处理
+### 里程碑 2.3 — 边界处理 + 完整兜底 + PR 学习数据延展
 
 - [ ] Agent B 重试机制（携带失败原因重入，最多 2 次）
 - [ ] Agent C → Agent B 退回循环（最多 3 次，超限 ARCHIVED）
+- [ ] **task 级 fallback**：Agent B 整 task 失败 / Agent C 退回 ≥2 次时，下次 dev 切换 fallback provider（混合策略剩余部分）
+- [ ] **RejectionClassifier Agent**（Haiku 4.5）：把 maintainer review/close 自由文本分类为 category/severity/dimension/agent_b_attribution
+- [ ] Webhook：pull_request_review + issue_comment 写入 `rejection_reasons` (source=maintainer_review/maintainer_close)
+- [ ] Revert 巡检：APScheduler 任务每日扫描 merged PR 是否被 revert，写 `pr_outcomes` (event_type=reverted_detected) 和 `pull_requests.final_outcome=REVERTED`
+- [ ] STALE 自动归档（30 天无动作）
 - [ ] PR 关闭后人工审核流程（重新开发 / 归档）
 - [ ] 卡死检测完整实现（repeated_read / no_write 等模式）
 - [ ] 上下文压缩（Agent B 长 loop 时触发）
@@ -111,8 +129,9 @@
 - [ ] Issue 详情页（评估报告全视图）
 - [ ] 开发进度步骤可视化（ANALYZE → PLAN → IMPLEMENT → TEST → COMMIT）
 - [ ] 历次开发 / 评审历史记录
-- [ ] PR 列表页
-- [ ] 统计概览（各状态数量、今日新增）
+- [ ] PR 列表页（含 `final_outcome` 着色 + `rejection_reasons` 摘要面板）
+- [ ] **PR 失败复盘视图**：按 category × Agent B 归因 聚合，Top N 失败模式可点击下钻到原始 PR
+- [ ] 统计概览（各状态数量、今日新增、本周 fallback 触发率）
 
 ### 里程碑 2.5 — 多厂商模型支持
 
@@ -125,13 +144,17 @@
 
 ## Phase 3 — 优化（质量 + 扩展）
 
-### 里程碑 3.1 — Prompt 质量提升
+### 里程碑 3.1 — Prompt 质量提升（基于 PR 学习闭环）
 
 - [ ] Agent A 离线评估框架（ground truth 对比）
-- [ ] Agent B 成功率分析（按语言、按错误类型）
-- [ ] Agent C 误拒率分析（人工抽样复查）
+- [ ] Agent B 成功率分析（按语言、按错误类型、按 fallback 触发与否）
+- [ ] Agent C 误拒率分析（对比 `agent_c` 退回与最终 maintainer 判定的吻合度）
 - [ ] Prompt A/B 测试流程
-- [ ] Few-shot 示例注入（成功案例复用）
+- [ ] **从 `rejection_reasons` 构建 Eval Golden Set**：
+   - MERGED_CLEAN 案例 → 正样本
+   - `agent_b_attribution=yes` + `severity=blocker` 案例 → Agent B 反例 few-shot
+   - 高频 `category=style_mismatch` → Agent B "学习 CONTRIBUTING.md" 步骤强化
+- [ ] 周报：Top 3 失败模式 + 每类型成本 + Agent B 归因比例
 
 ### 里程碑 3.2 — Agent B 能力增强
 
@@ -139,6 +162,7 @@
 - [ ] 多步测试策略（unit → integration → e2e 按需运行）
 - [ ] 修改影响范围分析（避免过宽修改）
 - [ ] Extended Thinking 支持（复杂问题启用）
+- [ ] **repo_profile 智能刷新**：基于 `rejection_reasons` 中 style_mismatch 频率自动触发强制刷新（已在 1.5 上数据基础，本期上策略）
 
 ### 里程碑 3.3 — 系统扩展
 

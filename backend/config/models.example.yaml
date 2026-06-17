@@ -1,0 +1,81 @@
+# ============================================================================
+# IssuePilot Agent 模型配置模板
+# 复制为 models.yaml 后按需修改。models.yaml 不得提交。
+#
+# 设计原则（见 docs/AGENT_DESIGN.md §多厂商模型配置）：
+#   - 所有 Agent 通过统一 LLMClient 抽象层调用，上层代码不感知厂商差异
+#   - provider 支持：anthropic | openai | deepseek | qwen
+#   - api_key_env 指向 .env 中的变量名，避免密钥直接落盘
+#
+# PoC 阶段（里程碑 1.0）只用 agent_b；A 和 C 保留默认即可。
+# ============================================================================
+
+agents:
+  # --------------------------------------------------------------------------
+  # Agent A — Issue 价值评估（Single-Shot + Tool Use）
+  # 任务：分析 + 一次性结构化输出，无外部工具调用
+  # temperature 偏低，确保评分稳定可比
+  # --------------------------------------------------------------------------
+  agent_a:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
+    max_tokens: 4096
+    temperature: 0.3
+
+  # --------------------------------------------------------------------------
+  # Agent B — 代码开发（ReAct Loop via Claude Code CLI headless）
+  # 任务：多轮工具调用（Read/Edit/Bash），需要更长输出与更低随机性
+  # PoC 阶段默认 Sonnet 4.6（性价比）；正式版可按 Issue 难度路由到 Opus 4.7
+  # 含 retry + fallback 配置；PoC 已验证 DeepSeek-V4-Pro 可作备用 provider
+  # --------------------------------------------------------------------------
+  agent_b:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
+    base_url_env: ANTHROPIC_BASE_URL          # 可选，中转 API 时使用
+    auth_token_env: ANTHROPIC_AUTH_TOKEN      # 可选，中转 API 时使用（与 api_key 二选一）
+    max_tokens: 8192
+    temperature: 0.2
+
+    retry:
+      max_attempts: 3                # 单次 LLM 调用的本 provider 重试次数
+      backoff_seconds: [2, 5, 10]    # 指数退避（秒）
+      retry_on_http: [408, 429, 500, 502, 503, 504]
+
+    fallback:
+      enabled: true
+      provider: deepseek
+      model: DeepSeek-V4-Pro
+      auth_token_env: DEEPSEEK_ANTHROPIC_TOKEN
+      base_url: https://api.deepseek.com/anthropic
+      # task 级 fallback 触发条件（详见 ARCHITECTURE.md §7.1）：
+      #   - Agent B 完整 task 失败（report_failure / max_turns）→ 整 task 用 fallback 重跑
+      #   - Agent C 退回 ≥ 2 次仍未通过 → 下次 dev 用 fallback
+      # 单次调用级 fallback：retry.max_attempts 耗尽后自动切换
+      trigger_on_task_failure: true
+
+  # --------------------------------------------------------------------------
+  # Agent C — 代码评审（Single-Shot + Tool Use）
+  # 任务：基于 diff 做通过/退回决策，必须高度稳定
+  # temperature 最低
+  # --------------------------------------------------------------------------
+  agent_c:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
+    max_tokens: 4096
+    temperature: 0.1
+
+# ============================================================================
+# 备选示例：切换到 DeepSeek（OpenAI 兼容接口）
+# ----------------------------------------------------------------------------
+# agents:
+#   agent_a:
+#     provider: deepseek
+#     model: deepseek-chat
+#     api_key_env: DEEPSEEK_API_KEY
+#     base_url: https://api.deepseek.com/v1
+#     max_tokens: 4096
+#     temperature: 0.3
+# ============================================================================

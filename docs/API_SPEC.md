@@ -83,10 +83,48 @@ retry_count
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/crawl-jobs` | 抓取任务历史 |
-| POST | `/crawl-jobs` | 手动触发抓取，返回 `{ job_id }` |
+| POST | `/crawl-jobs` | 手动触发定时抓取（按 crawl_targets 配置） |
+| POST | `/crawl-jobs/manual` | **手动指定 URL 入口（看板输入框）** |
 | GET | `/crawl-jobs/{id}` | 单次任务详情（含错误信息） |
 
 **stats 字段：** `repos_crawled`, `issues_found`, `issues_new`, `issues_skipped`, `duration_seconds`
+
+### POST /crawl-jobs/manual
+
+**请求：**
+```json
+{
+  "url": "https://github.com/owner/repo" | "https://github.com/owner/repo/issues/42",
+  "max_issues": 50,           // 仅 repo 模式有效，默认 50
+  "force_confirm": false      // repo 模式下 open_count > max_issues 时需用户二次确认
+}
+```
+
+**响应：**
+```json
+{
+  "job_id": "uuid",
+  "mode": "repo" | "issue",
+  "repo_full_name": "owner/repo",
+  "issues_enqueued": 12,       // 新入队的（不含 dedup 复用的）
+  "issues_reused": 3,          // dedup 命中，直接返回已有评估
+  "issues_skipped_reason": {}, // {reason: count}，如 closed/PR-only/超出 max_issues
+  "needs_confirmation": false, // true 时前端弹确认窗，用户确认后带 force_confirm=true 重发
+  "open_count_total": 15       // 仅 repo 模式返回，用于前端展示
+}
+```
+
+**错误码：**
+- `INVALID_URL`：URL 解析失败
+- `REPO_NOT_FOUND`：GitHub API 返回 404
+- `REPO_PRIVATE`：仓库私有，token 无权限
+- `RATE_LIMITED`：GitHub API 限流，返回 `retry_after_seconds`
+- `CONFIRMATION_REQUIRED`：repo 模式且超过 max_issues，前端弹窗后重试
+
+**与定时抓取的关系：**
+- 复用 CrawlerService 内部抓取逻辑（去重 / 入库 / 入评估队列）
+- `crawl_jobs.trigger = "manual_url"`，可在抓取日志页区分
+- `issues.source = "manual"`（与 cron 抓取的 `crawl` 区分）
 
 ---
 

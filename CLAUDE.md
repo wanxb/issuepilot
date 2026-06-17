@@ -2,7 +2,23 @@
 
 ## 项目简介
 
-IssuePilot 是多智能体 GitHub Issue 自动化开发流水线。每天自动发现 GitHub Issue，Agent A 评估价值，用户决策后 Agent B 在 Docker 沙箱中开发+自测，Agent C 评审通过后自动提交 PR。人工只在两个节点介入：选择开发哪个 Issue、处理 PR 被关闭的情况。
+IssuePilot 是多智能体 GitHub Issue 自动化开发流水线。
+
+**自动入口**：每天定时抓取 GitHub Issue。
+**手动入口**：用户在看板粘贴 repo URL 或 issue URL 立即评估。
+
+**Agent 流水线**：
+- **Agent A** 评估 Issue 价值（per-issue，高频）
+- **Agent D** 异步生成 repo profile（per-repo，90 天缓存，供 B/C 注入）
+- 用户决策后 **Agent B** 在 Docker 沙箱中开发+自测（注入 profile，无 profile 时降级自学习）
+- **Agent C** 评审（对比 profile 评 code_style）通过后自动提交 PR
+- 辅助 **RejectionClassifier**（Haiku）把 maintainer 自由文本分类为结构化退回原因
+
+**LLM 兜底**：单次调用级 retry + provider 切换；task 级在 Agent B 整 task 失败后切到 DeepSeek 重跑（DeepSeek-V4-Pro 已 PoC 验证可用）。
+
+**学习闭环**：所有 PR 结果（merged / closed / reverted）和退回原因结构化存储，Phase 3 喂回 Prompt 和 Eval Golden Set。
+
+人工只在两个节点介入：选择开发哪个 Issue、处理 PR 被关闭的情况。
 
 ## 文档导航
 

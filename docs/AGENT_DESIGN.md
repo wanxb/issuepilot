@@ -312,6 +312,117 @@ class ReviewDimension(BaseModel):
 
 ---
 
+## Agent D — Repo Onboarding（仓库画像）
+
+### 职责
+
+为每个仓库一次性生成"开发画像"（test command、code style notes、CONTRIBUTING summary、merged PR patterns），缓存于 `repo_profiles` 表（90 天 TTL），供 Agent B/C 在 system prompt 中注入。**Agent A 不读 profile**——它的输入只是 issue + repo metadata，无需 profile。
+
+### 设计决策
+
+**为什么不合并进 Agent A？**
+
+频率/成本/输出 schema 三者均不匹配。Agent A 是 per-issue 高频调用，profile 是 per-repo 低频缓存。合并会导致同一仓库的 50 个 Issue 各跑一遍 30k token 的 profile 构建，成本是分离方案的 6 倍（见 `docs/ARCHITECTURE.md` §10）。
+
+**为什么 Agent D 是 Single-Shot + Tool Use？**
+
+profile 是确定性输出，无需多轮探索。Agent D 通过受限工具集（`Read`、`Glob`、`Bash` 限制在 git/ls）一次性把仓库要点提取出来，调 `report_profile` 终止。运行环境复用 `agent-sandbox-{lang}` 镜像，但 `--allowedTools` 更窄。
+
+**触发时机（异步，不阻塞主流程）：**
+
+```
+crawler / manual_input 准备入 analyze_queue
+    └─→ for each new repo:
+        if repo_profiles.is_fresh(repo, ttl=90d): skip
+        else: enqueue profile_task
+
+Agent A 立即评估（不等 profile）
+用户决策开发 → Agent B 启动
+    if profile 已生成: 注入 system prompt
+    else: Agent B 自学习（降级）
+```
+
+### 输入
+
+```python
+class AgentDInput(BaseModel):
+    repo_full_name: str
+    repo_language: str
+    forked_repo: str                 # 已 fork 的副本，避免污染 upstream
+    recent_merged_pr_urls: list[str] # 最多 10 个，由 GitHub API 预取
+```
+
+### 输出（通过 Tool Use 强制）
+
+```python
+class AgentDOutput(BaseModel):
+    test_command: str                # 例 "pytest -q" 或 "npm test"；找不到时为空串
+    install_command: str             # 例 "pip install -e ." 或 "npm ci"
+    lint_command: str | None         # 可选
+    code_style_notes: str            # 200 字内，命名/缩进/文档惯例摘要
+    contributing_summary: str        # 200 字内，CONTRIBUTING.md 核心要求
+    forbidden_patterns: list[str]    # 例 "不要修改 generated/ 目录"、"不要新增 dependency"
+    pr_title_convention: str         # 例 "fix(scope): summary"、"[BUG] ..."
+    merged_pr_examples: list[dict]   # [{url, title_pattern, diff_style_note}], 最多 3 个
+    profile_quality: Literal["high", "medium", "low"]
+    quality_reason: str              # 50 字内
+```
+
+**`profile_quality`**：当仓库缺 CONTRIBUTING.md、PR 历史少、风格不统一时为 `low`，下游 Agent B 据此决定是否要额外自学习。
+
+### Tool Definition（`report_profile`）
+
+```json
+{
+  "name": "report_profile",
+  "input_schema": {
+    "type": "object",
+    "required": ["test_command", "install_command", "code_style_notes",
+                 "contributing_summary", "forbidden_patterns", "pr_title_convention",
+                 "merged_pr_examples", "profile_quality", "quality_reason"],
+    "properties": {
+      "test_command":          { "type": "string" },
+      "install_command":       { "type": "string" },
+      "lint_command":          { "type": ["string", "null"] },
+      "code_style_notes":      { "type": "string", "maxLength": 200 },
+      "contributing_summary":  { "type": "string", "maxLength": 200 },
+      "forbidden_patterns":    { "type": "array", "items": { "type": "string" } },
+      "pr_title_convention":   { "type": "string" },
+      "merged_pr_examples":    {
+        "type": "array",
+        "maxItems": 3,
+        "items": {
+          "type": "object",
+          "required": ["url", "title_pattern", "diff_style_note"],
+          "properties": {
+            "url":             { "type": "string" },
+            "title_pattern":   { "type": "string" },
+            "diff_style_note": { "type": "string" }
+          }
+        }
+      },
+      "profile_quality":       { "type": "string", "enum": ["high", "medium", "low"] },
+      "quality_reason":        { "type": "string", "maxLength": 100 }
+    }
+  }
+}
+```
+
+### 关键约束（注入 System Prompt）
+
+- 只读取仓库文件，不修改（`--allowedTools "Read,Glob,Grep,Bash"` 且 Bash 限定 `git log`/`git diff`/`ls`/`cat` 等）
+- 不调用外部网络（除 GitHub API 读 PR 列表，由 dev_worker 预取）
+- 必须在 15 turns 内调 `report_profile`，否则视为失败，降级让 Agent B 自学习
+- `profile_quality=low` 时仍要给出能用的 test_command/install_command，**不能拒绝输出**
+
+### 失效与刷新
+
+- TTL：90 天
+- 主动失效：仓库出现 `style_mismatch` 类 rejection 累计 ≥ 3 次时强制刷新（详见 ARCHITECTURE §8 学习闭环）
+- 失效后下次 Agent A 评估该 repo 的 Issue 时重新入 profile 队列
+
+---
+
 ## 多厂商模型配置
 
 配置文件位置：`backend/config/models.yaml`（纳入 `.gitignore`，通过 `models.example.yaml` 提供模板）
@@ -337,6 +448,20 @@ agents:
     model: claude-sonnet-4-6
     api_key_env: ANTHROPIC_API_KEY
     max_tokens: 4096
+    temperature: 0.1
+
+  agent_d:                       # RepoOnboarding（Single-Shot Tool Use）
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
+    max_tokens: 4096
+    temperature: 0.2
+
+  rejection_classifier:          # 辅助 agent（Single-Shot）
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    api_key_env: ANTHROPIC_API_KEY
+    max_tokens: 1024
     temperature: 0.1
 ```
 
