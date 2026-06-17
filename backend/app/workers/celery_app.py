@@ -52,3 +52,12 @@ celery_app.conf.update(
 def ping() -> str:
     """冒烟任务：返回 'pong'。"""
     return "pong"
+
+
+# 自动发现所有 worker 模块（让 import 副作用注册 @task）
+celery_app.autodiscover_tasks(
+    [
+        "app.workers.analyze_worker",
+    ],
+    force=True,
+)
