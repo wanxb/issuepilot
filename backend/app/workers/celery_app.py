@@ -54,10 +54,6 @@ def ping() -> str:
     return "pong"
 
 
-# 自动发现所有 worker 模块（让 import 副作用注册 @task）
-celery_app.autodiscover_tasks(
-    [
-        "app.workers.analyze_worker",
-    ],
-    force=True,
-)
+# 显式 import 所有 worker 模块，让 @celery_app.task 装饰器在 import 时注册任务
+# （autodiscover_tasks 是为 package/tasks 约定准备的，本项目不用那个约定）
+from app.workers import analyze_worker  # noqa: E402, F401

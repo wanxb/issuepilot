@@ -37,20 +37,24 @@
 - [x] Next.js 14 前端骨架 + Tailwind + shadcn/ui base + API 代理（rewrites `/api/*` `/readyz` 到 api 容器）
 - [x] 前端首页含 HealthPanel，实时轮询 `/readyz`
 
-### 里程碑 1.2 — Crawler + Agent A + 手动输入入口
+### 里程碑 1.2 — Crawler + Agent A + 手动输入入口 ✅ 已完成 2026-06-17
 
-- [ ] GitHub API 客户端（Issue 抓取、仓库信息、PR 列表预取）
-- [ ] CrawlerService（cron 触发 + 去重逻辑）
-- [ ] **手动 URL 入口**：POST `/crawl-jobs/manual`（支持 repo URL / issue URL，默认上限 50，dedup 复用旧评估）
-- [ ] **看板 URL 输入框**（前端组件 + 确认对话框）
-- [ ] LLMClient 抽象层（Anthropic 实现 + DeepSeek Anthropic 兼容兜底 wrapper）
-- [ ] `llm_call_logs` 表 + 调用埋点（含 `is_fallback` / `cost_usd` / `error_code`）
-- [ ] 单次调用级 retry + provider 切换（混合策略中的"单次调用级"部分，见 ARCHITECTURE.md §7.1）
-- [ ] Agent A Harness（SingleShotLoop + Tool Use 结构化输出）
-- [ ] Agent A Prompt v1.0
-- [ ] analyze_worker（Celery）
-- [ ] `/api/v1/issues` GET 接口
-- [ ] 看板 Issue 列表页（基础版，无筛选）
+- [x] GitHub API 客户端（Issue 抓取、仓库信息、PR 列表预取）—— httpx async，5 个端点
+- [x] CrawlerService（手动 URL 入口 + dedup 逻辑）—— cron 触发留到 2.2 抓取配置管理
+- [x] **手动 URL 入口**：POST `/api/v1/crawl-jobs/manual`（含 needs_confirmation 两步）
+- [x] **看板 URL 输入框**（UrlInputBar + window.confirm 确认对话框；shadcn Dialog 留到 2.4）
+- [x] LLMClient 抽象层 + AnthropicClient（直连 / 中转双模式）
+- [x] DeepSeek Anthropic 兼容兜底 wrapper（FallbackLLMClient）
+- [x] `llm_call_logs` 表 + 调用埋点
+- [x] 单次调用级 retry + provider 切换
+- [x] Agent A Harness（Single-Shot Tool Use）
+- [x] Agent A Prompt v1.0（含 hard rules + 反 injection XML 边界）
+- [x] analyze_worker（Celery + asyncio.run）
+- [x] `/api/v1/issues` GET 接口（分页 + 5 维筛选 + 排序）
+- [x] 看板 Issue 列表页（IssuesList 5s 轮询 + Card 卡片）
+
+**真实端到端验证（已通过）：** 3 个 demo issue 入库 → worker 跑完 → 看板呈现评估分数 + 摘要。
+proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计。
 
 ### 里程碑 1.3 — 用户决策流
 
