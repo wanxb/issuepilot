@@ -5,6 +5,8 @@
  */
 import type {
   ApiErrorDetail,
+  DecideAction,
+  IssueListItem,
   IssueListResponse,
   ManualSubmitRequest,
   ManualSubmitResponse,
@@ -64,6 +66,13 @@ export const api = {
     return request<ManualSubmitResponse>("/api/v1/crawl-jobs/manual", {
       method: "POST",
       body: JSON.stringify(body),
+    });
+  },
+
+  decide(issueId: string, action: DecideAction): Promise<IssueListItem> {
+    return request<IssueListItem>(`/api/v1/issues/${issueId}/decide`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
     });
   },
 };

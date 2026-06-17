@@ -56,11 +56,11 @@
 **真实端到端验证（已通过）：** 3 个 demo issue 入库 → worker 跑完 → 看板呈现评估分数 + 摘要。
 proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计。
 
-### 里程碑 1.3 — 用户决策流
+### 里程碑 1.3 — 用户决策流 ✅ 已完成 2026-06-17
 
-- [ ] `/api/v1/issues/{id}/decide` 接口（忽略/开发）
-- [ ] Issue 状态流转（PENDING_DECISION → QUEUED_DEV / IGNORED）
-- [ ] 看板操作按钮（忽略 / 加入开发）
+- [x] `POST /api/v1/issues/{id}/decide` 接口（action: ignore / start_dev）
+- [x] Issue 状态流转校验（PENDING_DECISION → QUEUED_DEV / IGNORED），非法状态返 409、非法 action 返 422
+- [x] 看板操作按钮 DecideActions（"加入开发" / "忽略"，乐观更新 + 错误回退）
 
 ### 里程碑 1.4 — Agent B（Docker 沙箱 + 开发）
 

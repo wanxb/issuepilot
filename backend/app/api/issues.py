@@ -6,7 +6,9 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,7 +18,14 @@ from app.models.enums import IssueSource, IssueStatus
 from app.models.evaluation import Evaluation
 from app.models.issue import Issue
 from app.models.repository import Repository
+from app.schemas.decide import DecideRequest
 from app.schemas.issue import IssueListItem, IssueListResponse
+from app.services.issue_service import (
+    InvalidDecisionError,
+    InvalidTransitionError,
+    IssueNotFoundError,
+    IssueService,
+)
 
 router = APIRouter(prefix="/api/v1/issues", tags=["issues"])
 
@@ -95,3 +104,52 @@ async def list_issues(
 
     items = [IssueListItem.model_validate(r) for r in rows]
     return IssueListResponse(items=items, page=page, page_size=page_size, total=total)
+
+
+@router.post(
+    "/{issue_id}/decide",
+    response_model=IssueListItem,
+    responses={
+        404: {"description": "Issue not found"},
+        409: {"description": "Issue not in PENDING_DECISION state"},
+        422: {"description": "Unknown action"},
+    },
+)
+async def decide(
+    issue_id: uuid.UUID,
+    payload: DecideRequest,
+    session: AsyncSession = Depends(get_session),
+) -> IssueListItem:
+    svc = IssueService(session)
+    try:
+        issue = await svc.get(issue_id)
+    except IssueNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ISSUE_NOT_FOUND", "message": str(e)},
+        ) from e
+
+    try:
+        issue = await svc.decide(issue, action=payload.action)
+        await session.commit()
+    except InvalidDecisionError as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "INVALID_ACTION", "message": str(e)},
+        ) from e
+    except InvalidTransitionError as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "INVALID_STATE_TRANSITION",
+                "message": str(e),
+                "from_state": e.from_state.value,
+                "to_state": e.to_state.value,
+            },
+        ) from e
+
+    # 重读一次以让关系加载齐全
+    fresh = await svc.get(issue.id)
+    return IssueListItem.model_validate(fresh)

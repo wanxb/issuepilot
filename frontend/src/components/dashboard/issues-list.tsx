@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, api } from "@/lib/api";
-import type { IssueListItem, IssueListResponse } from "@/lib/types";
+import type { DecideAction, IssueListItem, IssueListResponse } from "@/lib/types";
 
 const POLL_MS = 5_000;
 
@@ -30,6 +31,17 @@ export function IssuesList({ refreshKey }: { refreshKey?: number }) {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const replaceItem = useCallback((updated: IssueListItem) => {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            items: prev.items.map((i) => (i.id === updated.id ? updated : i)),
+          }
+        : prev,
+    );
   }, []);
 
   useEffect(() => {
@@ -59,14 +71,19 @@ export function IssuesList({ refreshKey }: { refreshKey?: number }) {
       </p>
       <ul className="space-y-3">
         {data.items.map((item) => (
-          <IssueRow key={item.id} item={item} />
+          <IssueRow key={item.id} item={item} onDecided={replaceItem} />
         ))}
       </ul>
     </div>
   );
 }
 
-function IssueRow({ item }: { item: IssueListItem }) {
+interface IssueRowProps {
+  item: IssueListItem;
+  onDecided?: (updated: IssueListItem) => void;
+}
+
+function IssueRow({ item, onDecided }: IssueRowProps) {
   const ev = item.evaluation;
   return (
     <li>
@@ -95,7 +112,7 @@ function IssueRow({ item }: { item: IssueListItem }) {
           </div>
         </CardHeader>
         {ev && (
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Badge variant={ev.is_worth_developing ? "success" : "warning"}>
                 评分 {ev.total_score.toFixed(1)}
@@ -107,10 +124,60 @@ function IssueRow({ item }: { item: IssueListItem }) {
               )}
             </div>
             <p className="text-sm text-muted-foreground">{ev.summary}</p>
+            {item.status === "PENDING_DECISION" && (
+              <DecideActions item={item} onDecided={onDecided} />
+            )}
           </CardContent>
         )}
       </Card>
     </li>
+  );
+}
+
+function DecideActions({ item, onDecided }: IssueRowProps) {
+  const [submitting, setSubmitting] = useState<DecideAction | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function go(action: DecideAction) {
+    setSubmitting(action);
+    setError(null);
+    try {
+      const updated = await api.decide(item.id, action);
+      onDecided?.(updated);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? `[${err.detail.code}] ${err.detail.message}`
+          : err instanceof Error
+            ? err.message
+            : "操作失败",
+      );
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-1">
+      <Button
+        size="sm"
+        onClick={() => void go("start_dev")}
+        disabled={submitting !== null}
+      >
+        {submitting === "start_dev" ? "提交中..." : "加入开发"}
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => void go("ignore")}
+        disabled={submitting !== null}
+      >
+        {submitting === "ignore" ? "提交中..." : "忽略"}
+      </Button>
+      {error && (
+        <span className="text-xs text-destructive">{error}</span>
+      )}
+    </div>
   );
 }
 

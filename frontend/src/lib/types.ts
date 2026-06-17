@@ -75,6 +75,8 @@ export interface ManualSubmitResponse {
   open_count_total: number | null;
 }
 
+export type DecideAction = "ignore" | "start_dev";
+
 export interface ApiErrorDetail {
   code: string;
   message: string;

@@ -61,6 +61,10 @@ class IssueNotFoundError(Exception):
     pass
 
 
+class InvalidDecisionError(Exception):
+    """API 层 action 字段不识别（既不是 ignore 也不是 start_dev）。"""
+
+
 class IssueService:
     def __init__(self, session: AsyncSession) -> None:
         self._s = session
@@ -103,6 +107,26 @@ class IssueService:
 
     async def mark_analyzing(self, issue: Issue) -> Issue:
         return await self.transition(issue, to=IssueStatus.ANALYZING)
+
+    async def decide(
+        self,
+        issue: Issue,
+        *,
+        action: str,
+    ) -> Issue:
+        """用户决策（看板「忽略 / 加入开发」按钮）。
+
+        action == "ignore":    PENDING_DECISION → IGNORED
+        action == "start_dev": PENDING_DECISION → QUEUED_DEV
+
+        不允许的状态前置 / 非法 action 都通过 transition() 的白名单或这里
+        抛出 InvalidDecisionError，API 层映射 409 / 422。
+        """
+        if action == "ignore":
+            return await self.transition(issue, to=IssueStatus.IGNORED)
+        if action == "start_dev":
+            return await self.transition(issue, to=IssueStatus.QUEUED_DEV)
+        raise InvalidDecisionError(f"unknown action: {action!r}")
 
     async def finish_analyzing(
         self,
