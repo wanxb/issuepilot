@@ -73,9 +73,14 @@ services:
       DATABASE_URL: postgresql+asyncpg://issuepilot:issuepilot@postgres:5432/issuepilot
       REDIS_URL: redis://redis:6379/0
       ENV: dev
+      # 让 docker SDK 通过 unix socket 连接宿主 daemon
+      DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
       - ./backend:/app
       - backend_venv:/opt/venv
+      # ARCHITECTURE.md §5 + 1.4 决策：worker 容器内启动 sandbox 子容器
+      # 需要访问宿主 Docker daemon。Docker Desktop on Windows 也支持此挂载
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy

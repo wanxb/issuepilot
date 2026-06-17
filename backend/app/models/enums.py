@@ -72,3 +72,34 @@ class IssueDifficulty(str, enum.Enum):
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
+
+
+class DevTaskStatus(str, enum.Enum):
+    """Agent B 单次开发尝试的状态。"""
+
+    PENDING = "pending"           # 入队等待 worker
+    RUNNING = "running"           # 沙箱中执行 ANALYZE/PLAN/IMPLEMENT/TEST
+    SUCCEEDED = "succeeded"       # report_completion 收到 + 测试全绿
+    FAILED = "failed"             # report_failure 收到 / max_turns / 测试失败
+    TIMEOUT = "timeout"           # 沙箱执行超时被强制 kill
+
+
+class DevLogLevel(str, enum.Enum):
+    """dev_logs.level —— 用于前端着色。"""
+
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class DevLogStep(str, enum.Enum):
+    """Agent B 5 阶段（AGENT_DESIGN.md §Agent B 执行阶段）+ 系统事件。"""
+
+    SETUP = "setup"               # 系统：clone、安装依赖
+    ANALYZE = "analyze"
+    PLAN = "plan"
+    IMPLEMENT = "implement"
+    TEST = "test"
+    COMMIT = "commit"
+    SYSTEM = "system"             # 系统：超时、强制终止、stuck 检测

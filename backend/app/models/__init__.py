@@ -4,6 +4,8 @@
 新增模型时在这里 + alembic/env.py 各加一行 import。
 """
 from app.models.crawl_job import CrawlJob
+from app.models.dev_log import DevLog
+from app.models.dev_task import DevTask
 from app.models.evaluation import Evaluation
 from app.models.issue import Issue
 from app.models.llm_call_log import LLMCallLog
@@ -11,6 +13,8 @@ from app.models.repository import Repository
 
 __all__ = [
     "CrawlJob",
+    "DevLog",
+    "DevTask",
     "Evaluation",
     "Issue",
     "LLMCallLog",
