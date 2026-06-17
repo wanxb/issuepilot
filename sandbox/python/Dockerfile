@@ -40,6 +40,10 @@ RUN useradd --create-home --shell /bin/bash agent
 COPY --chown=agent:agent mcp_report_server.py /opt/issuepilot/mcp_report_server.py
 RUN chmod +x /opt/issuepilot/mcp_report_server.py
 
+# 容器入口脚本（clone + branch + claude 调用）
+COPY --chown=agent:agent entrypoint.sh /opt/issuepilot/entrypoint.sh
+RUN chmod +x /opt/issuepilot/entrypoint.sh
+
 # 工作区 + 缓存目录（缓存目录由 host volume 挂载覆盖）
 RUN mkdir -p /workspace /cache/pip /cache/npm \
     && chown -R agent:agent /workspace /cache

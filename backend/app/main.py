@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.crawl_jobs import router as crawl_jobs_router
 from app.api.health import router as health_router
 from app.api.issues import router as issues_router
+from app.api.ws import router as ws_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.database import engine
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(issues_router)
     app.include_router(crawl_jobs_router)
+    app.include_router(ws_router)
     return app
 
 

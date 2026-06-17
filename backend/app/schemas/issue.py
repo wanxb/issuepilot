@@ -36,6 +36,7 @@ class IssueListItem(BaseModel):
     created_at: datetime
     repository: RepoView
     evaluation: EvaluationView | None = None
+    active_dev_task_id: uuid.UUID | None = None
 
 
 class IssueListResponse(BaseModel):

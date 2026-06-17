@@ -62,17 +62,17 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] Issue 状态流转校验（PENDING_DECISION → QUEUED_DEV / IGNORED），非法状态返 409、非法 action 返 422
 - [x] 看板操作按钮 DecideActions（"加入开发" / "忽略"，乐观更新 + 错误回退）
 
-### 里程碑 1.4 — Agent B（Docker 沙箱 + 开发）
+### 里程碑 1.4 — Agent B（Docker 沙箱 + 开发）✅ 已完成 2026-06-17
 
-- [ ] Docker 沙箱管理器（启动/停止/超时）
-- [ ] agent-sandbox-python 镜像（首个语言，用于验证）
-- [ ] GitHub Fork + Clone 逻辑
-- [ ] Agent B Harness（ReAct Loop，含卡死检测基础版）
-- [ ] Claude Code CLI headless 模式集成
-- [ ] dev_worker（Celery）
-- [ ] dev_logs 实时写入
-- [ ] WebSocket 日志推送（Redis PubSub → 前端）
-- [ ] 看板开发进度展示（基础日志流）
+- [x] Docker 沙箱管理器（SandboxManager：start/stream_logs/collect_report/stop/wait）
+- [x] agent-sandbox-python 镜像（Dockerfile + entrypoint.sh + mcp_report_server.py）
+- [x] GitHub Fork + Clone 逻辑（GitHubService，无 dev_token 时跳过 fork）
+- [x] Agent B Harness（stream-json 解析，ParsedLine，report_completion/failure 提取）
+- [x] Claude Code CLI headless 模式集成（base64 prompt → stdin，--output-format stream-json）
+- [x] dev_worker（Celery，Phase 1 DB + Phase 2 沙箱 + Phase 3 结果写回，三阶段编排）
+- [x] dev_logs 实时写入（DevLogService：DB insert + Redis publish）
+- [x] WebSocket 日志推送（Redis PubSub → `/ws/dev-tasks/{id}/logs` → 前端）
+- [x] 看板开发进度展示（DevLogStream 组件，IN_DEV/DEV_TESTING 状态自动展示）
 
 ### 里程碑 1.5 — Agent C + Agent D（RepoOnboarding）+ PR 提交 + PR 链路数据采集
 

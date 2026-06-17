@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -14,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.database import get_session
-from app.models.enums import IssueSource, IssueStatus
+from app.models.dev_task import DevTask
+from app.models.enums import DevTaskStatus, IssueSource, IssueStatus
 from app.models.evaluation import Evaluation
 from app.models.issue import Issue
 from app.models.repository import Repository
@@ -26,6 +28,7 @@ from app.services.issue_service import (
     IssueNotFoundError,
     IssueService,
 )
+from app.workers.celery_app import celery_app
 
 router = APIRouter(prefix="/api/v1/issues", tags=["issues"])
 
@@ -102,7 +105,29 @@ async def list_issues(
     stmt = stmt.offset(offset).limit(page_size)
     rows = (await session.execute(stmt)).scalars().all()
 
-    items = [IssueListItem.model_validate(r) for r in rows]
+    # 批量查找处于活跃 dev 状态的 DevTask id
+    active_task_map: dict[uuid.UUID, uuid.UUID] = {}
+    active_issue_ids = [
+        r.id for r in rows if r.status in (IssueStatus.IN_DEV, IssueStatus.DEV_TESTING)
+    ]
+    if active_issue_ids:
+        task_stmt = (
+            select(DevTask.issue_id, DevTask.id)
+            .where(DevTask.issue_id.in_(active_issue_ids))
+            .where(DevTask.status.in_([DevTaskStatus.PENDING, DevTaskStatus.RUNNING]))
+            .order_by(DevTask.created_at.desc())
+        )
+        task_rows = (await session.execute(task_stmt)).all()
+        for t_issue_id, t_id in task_rows:
+            if t_issue_id not in active_task_map:
+                active_task_map[t_issue_id] = t_id
+
+    items: list[IssueListItem] = []
+    for r in rows:
+        item = IssueListItem.model_validate(r)
+        item.active_dev_task_id = active_task_map.get(r.id)
+        items.append(item)
+
     return IssueListResponse(items=items, page=page, page_size=page_size, total=total)
 
 
@@ -129,8 +154,20 @@ async def decide(
             detail={"code": "ISSUE_NOT_FOUND", "message": str(e)},
         ) from e
 
+    dev_task: DevTask | None = None
     try:
         issue = await svc.decide(issue, action=payload.action)
+
+        # start_dev：创建 DevTask，后续 trigger dev_worker
+        if payload.action == "start_dev":
+            dev_task = DevTask(
+                issue_id=issue.id,
+                attempt_number=1,
+                status=DevTaskStatus.PENDING,
+            )
+            session.add(dev_task)
+            await session.flush()
+
         await session.commit()
     except InvalidDecisionError as e:
         await session.rollback()
@@ -150,6 +187,17 @@ async def decide(
             },
         ) from e
 
+    # 任务入队（commit 后再 send，避免 worker 比 commit 更快执行）
+    if dev_task is not None:
+        celery_app.send_task(
+            "app.workers.dev_worker.develop_issue",
+            args=[str(issue.id), str(dev_task.id)],
+            queue="dev_queue",
+        )
+
     # 重读一次以让关系加载齐全
     fresh = await svc.get(issue.id)
-    return IssueListItem.model_validate(fresh)
+    item = IssueListItem.model_validate(fresh)
+    if dev_task is not None:
+        item.active_dev_task_id = dev_task.id
+    return item

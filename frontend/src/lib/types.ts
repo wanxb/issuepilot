@@ -47,6 +47,18 @@ export interface IssueListItem {
   created_at: string;
   repository: RepoView;
   evaluation: EvaluationView | null;
+  active_dev_task_id: string | null;
+}
+
+export type DevLogLevel = "debug" | "info" | "warning" | "error";
+export type DevLogStep = "setup" | "analyze" | "plan" | "implement" | "test" | "commit" | "system";
+
+export interface DevLogEntry {
+  id: string;
+  level: DevLogLevel;
+  step: DevLogStep;
+  message: string;
+  created_at: string;
 }
 
 export interface IssueListResponse {

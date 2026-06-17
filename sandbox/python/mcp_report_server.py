@@ -18,6 +18,7 @@ MCP stdio server: 暴露 Agent B 的两个终止工具
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -25,7 +26,7 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field, ValidationError
 
-REPORT_PATH = Path("/workspace/.agent_report.json")
+REPORT_PATH = Path(os.environ.get("AGENT_REPORT_PATH", "/workspace/.agent_report.json"))
 
 mcp = FastMCP("issuepilot-agent-b-terminator")
 

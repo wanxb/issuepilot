@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DevLogStream } from "@/components/dashboard/dev-log-stream";
 import { ApiError, api } from "@/lib/api";
 import type { DecideAction, IssueListItem, IssueListResponse } from "@/lib/types";
 
@@ -129,6 +130,13 @@ function IssueRow({ item, onDecided }: IssueRowProps) {
             )}
           </CardContent>
         )}
+        {/* 开发进度日志（IN_DEV / DEV_TESTING 状态时展示） */}
+        {(item.status === "IN_DEV" || item.status === "DEV_TESTING") &&
+          item.active_dev_task_id && (
+            <CardContent>
+              <DevLogStream devTaskId={item.active_dev_task_id} />
+            </CardContent>
+          )}
       </Card>
     </li>
   );

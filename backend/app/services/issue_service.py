@@ -128,6 +128,22 @@ class IssueService:
             return await self.transition(issue, to=IssueStatus.QUEUED_DEV)
         raise InvalidDecisionError(f"unknown action: {action!r}")
 
+    async def mark_in_dev(self, issue: Issue) -> Issue:
+        """QUEUED_DEV → IN_DEV"""
+        return await self.transition(issue, to=IssueStatus.IN_DEV)
+
+    async def mark_dev_testing(self, issue: Issue) -> Issue:
+        """IN_DEV → DEV_TESTING"""
+        return await self.transition(issue, to=IssueStatus.DEV_TESTING)
+
+    async def mark_dev_failed(self, issue: Issue) -> Issue:
+        """IN_DEV 或 DEV_TESTING → DEV_FAILED"""
+        return await self.transition(issue, to=IssueStatus.DEV_FAILED)
+
+    async def mark_queued_review(self, issue: Issue) -> Issue:
+        """DEV_TESTING → QUEUED_REVIEW"""
+        return await self.transition(issue, to=IssueStatus.QUEUED_REVIEW)
+
     async def finish_analyzing(
         self,
         issue: Issue,

@@ -70,5 +70,45 @@ class AgentAOutput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 后续 Agent（B / C / D）放这里，1.4+ 实现
+# Agent B
+# ---------------------------------------------------------------------------
+
+
+class AgentBInput(BaseModel):
+    issue_title: str
+    issue_body: str
+    issue_url: str
+    repo_full_name: str
+    repo_language: str | None = None
+    evaluation_summary: str
+    review_context: str | None = None
+    attempt_number: int = 1
+    branch_name: str
+    forked_repo: str
+
+
+class AgentBOutput(BaseModel):
+    success: bool
+    files_changed: list[str]
+    diff_summary: str
+    test_passed: bool
+    total_tests: int
+    failed_tests: int
+    new_tests_added: int
+    test_output_snippet: str
+
+
+class AgentBFailure(BaseModel):
+    reason: Literal[
+        "cannot_locate_issue",
+        "requires_external_deps",
+        "issue_is_invalid",
+        "test_infrastructure",
+        "out_of_scope",
+    ]
+    detail: str
+
+
+# ---------------------------------------------------------------------------
+# 后续 Agent（C / D）放这里，1.5+ 实现
 # ---------------------------------------------------------------------------

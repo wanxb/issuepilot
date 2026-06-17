@@ -6,6 +6,7 @@
 import type {
   ApiErrorDetail,
   DecideAction,
+  DevLogEntry,
   IssueListItem,
   IssueListResponse,
   ManualSubmitRequest,
@@ -74,5 +75,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ action }),
     });
+  },
+
+  getDevLogs(devTaskId: string, limit = 200): Promise<DevLogEntry[]> {
+    return request<DevLogEntry[]>(
+      `/api/v1/dev-tasks/${devTaskId}/logs?limit=${limit}`,
+    );
   },
 };
