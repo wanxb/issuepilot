@@ -28,13 +28,14 @@
 
 **PoC 关键数字：** Sonnet 4.6 clean run 9 turns / 49.6s / $0.22；injection run 9 turns / 37s / $0.11，零绕过。
 
-### 里程碑 1.1 — 基础设施
+### 里程碑 1.1 — 基础设施 ✅ 已完成 2026-06-17
 
-- [ ] Docker Compose 环境（postgres + redis + api + worker + frontend）
-- [ ] PostgreSQL 数据库初始化（alembic migrations）
-- [ ] FastAPI 骨架 + 健康检查接口
-- [ ] Celery 任务队列接通 Redis
-- [ ] Next.js 前端骨架 + API 代理配置
+- [x] Docker Compose 环境（postgres 16 + redis 7 + api + worker + frontend）
+- [x] PostgreSQL 数据库初始化（alembic baseline migration + 异步 env.py）
+- [x] FastAPI 骨架 + `/healthz` + `/readyz`（DB+Redis 连通性双探针）
+- [x] Celery 任务队列接通 Redis（analyze / dev / review 三队列 + ping 冒烟任务跑通）
+- [x] Next.js 14 前端骨架 + Tailwind + shadcn/ui base + API 代理（rewrites `/api/*` `/readyz` 到 api 容器）
+- [x] 前端首页含 HealthPanel，实时轮询 `/readyz`
 
 ### 里程碑 1.2 — Crawler + Agent A + 手动输入入口
 
