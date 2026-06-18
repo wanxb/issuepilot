@@ -55,6 +55,7 @@ from app.models.enums import (
 )
 from app.models.issue import Issue
 from app.models.rejection_reason import RejectionReason
+from app.models.repo_profile import RepoProfile
 from app.models.review_task import ReviewTask
 from app.services.issue_service import (
     InvalidTransitionError,
@@ -133,8 +134,13 @@ async def _review_dev_task_async(
 
             await svc.mark_in_review(issue)
 
-            # 准备 AgentCInput 的源数据
+            # 1.5c: 拉 repo_profile（缺失时空串注入，prompt 走通用规则）
             repo = issue.repository
+            profile_stmt = select(RepoProfile).where(RepoProfile.repo_id == repo.id)
+            profile = (await s.execute(profile_stmt)).scalar_one_or_none()
+            style_notes = profile.code_style_notes if profile else ""
+            contributing_summary = profile.contributing_summary if profile else ""
+
             agent_input_kwargs = {
                 "issue_title": issue.title,
                 "issue_body": _truncate_body(issue.body),
@@ -146,9 +152,8 @@ async def _review_dev_task_async(
                 "files_changed": dev_task.files_changed or [],
                 "attempt_number": review_task.attempt_number,
                 "previous_rejections": [],  # 2.3 携带历次 rejection
-                # 1.5c 注入 repo_profile（1.5b 阶段为空）
-                "repo_style_notes": "",
-                "repo_contributing_summary": "",
+                "repo_style_notes": style_notes,
+                "repo_contributing_summary": contributing_summary,
             }
             empty_diff = not agent_input_kwargs["diff_content"].strip()
 

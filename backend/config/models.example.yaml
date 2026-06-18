@@ -89,6 +89,30 @@ agents:
       auth_token_env: DEEPSEEK_ANTHROPIC_TOKEN
       base_url: https://api.deepseek.com/anthropic
 
+  # --------------------------------------------------------------------------
+  # Agent D — RepoOnboarding（Single-Shot + Tool Use）
+  # 任务：per-repo 一次性输出 profile（test/install command + 风格规约 + PR 范例）
+  # 1.5c MVP 用 SingleShot API 调用（不进沙箱）；profile_worker 预取 README/
+  # CONTRIBUTING/manifest/recent PR diff 后注入 prompt
+  # --------------------------------------------------------------------------
+  agent_d:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
+    base_url_env: ANTHROPIC_BASE_URL
+    auth_token_env: ANTHROPIC_AUTH_TOKEN
+    max_tokens: 4096
+    temperature: 0.2
+    retry:
+      max_attempts: 3
+      backoff_seconds: [2, 5, 10]
+    fallback:
+      enabled: true
+      provider: deepseek
+      model: DeepSeek-V4-Pro
+      auth_token_env: DEEPSEEK_ANTHROPIC_TOKEN
+      base_url: https://api.deepseek.com/anthropic
+
 # ============================================================================
 # 备选示例：切换到 DeepSeek（OpenAI 兼容接口）
 # ----------------------------------------------------------------------------

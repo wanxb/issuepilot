@@ -156,6 +156,14 @@ async def _setup_phase(
         repo = issue.repository
         evaluation = issue.evaluation
 
+        # 1.5c: 拉 repo_profile（缺失 / 过期不阻塞，让 prompt 走自学习降级）
+        from app.models.repo_profile import RepoProfile
+        from sqlalchemy import select as _select
+
+        profile_stmt = _select(RepoProfile).where(RepoProfile.repo_id == repo.id)
+        profile_row = (await s.execute(profile_stmt)).scalar_one_or_none()
+        profile_block = _render_profile_block(profile_row)
+
         # 生成分支名
         branch_name = GitHubService.generate_branch_name(issue.github_number, issue.title)
 
@@ -180,6 +188,7 @@ async def _setup_phase(
             attempt_number=dev_task.attempt_number,
             branch_name=branch_name,
             forked_repo=forked_repo,
+            repo_profile_block=profile_block,
         )
 
         # 构造 prompt 并 base64 编码
@@ -518,6 +527,31 @@ def _truncate_body(body: str | None, *, head: int = 1500, tail: int = 300) -> st
     if len(text) <= head + tail:
         return text
     return text[:head] + "\n\n[... truncated ...]\n\n" + text[-tail:]
+
+
+def _render_profile_block(profile) -> str | None:  # type: ignore[no-untyped-def]
+    """RepoProfile → 注入 Agent B 的纯文本块。None 让 prompt 走自学习降级。"""
+    if profile is None:
+        return None
+    parts: list[str] = [
+        f"test_command: {profile.test_command or '(unknown)'}",
+        f"install_command: {profile.install_command or '(unknown)'}",
+    ]
+    if profile.lint_command:
+        parts.append(f"lint_command: {profile.lint_command}")
+    parts.append(f"pr_title_convention: {profile.pr_title_convention or '(none)'}")
+    parts.append(
+        f"profile_quality: {profile.profile_quality.value} ({profile.quality_reason or 'no reason'})"
+    )
+    if profile.code_style_notes:
+        parts.append(f"code_style_notes: {profile.code_style_notes}")
+    if profile.contributing_summary:
+        parts.append(f"contributing_summary: {profile.contributing_summary}")
+    if profile.forbidden_patterns:
+        parts.append("forbidden_patterns:")
+        for p in profile.forbidden_patterns:
+            parts.append(f"  - {p}")
+    return "\n".join(parts)
 
 
 def _get_timeout_minutes() -> int:

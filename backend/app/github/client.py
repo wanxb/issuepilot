@@ -182,6 +182,67 @@ class GitHubClient:
         data = await self._get(f"/repos/{owner}/{repo}/languages")
         return data if isinstance(data, dict) else {}
 
+    async def get_file_content(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        *,
+        ref: str | None = None,
+        max_bytes: int = 80_000,
+    ) -> str | None:
+        """读取仓库内某个文件的文本内容。
+
+        - 用 raw 媒体类型直取（避免 base64 解码）
+        - 404 / 403 / 文件过大（GitHub raw 端点 1MB 限制）→ None
+        - max_bytes 截断（防止 README 太长撑爆 prompt）
+        """
+        params: dict[str, Any] = {}
+        if ref:
+            params["ref"] = ref
+        try:
+            resp = await self._client.get(
+                f"/repos/{owner}/{repo}/contents/{path}",
+                params=params,
+                headers={"Accept": "application/vnd.github.raw+json"},
+            )
+        except httpx.RequestError:
+            return None
+        self.last_rate_limit = RateLimit.from_headers(resp.headers)
+        if resp.status_code != 200:
+            return None
+        text = resp.text or ""
+        if len(text) > max_bytes:
+            text = text[:max_bytes] + "\n\n[... truncated ...]\n"
+        return text
+
+    async def get_pr_diff(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        *,
+        max_bytes: int = 8_000,
+    ) -> str | None:
+        """获取 PR 的 unified diff 文本（截断后用于 Agent D 学习风格）。
+
+        404 / 403 / 大于 max_bytes 时返回截断字符串；失败返回 None。
+        """
+        try:
+            resp = await self._client.get(
+                f"/repos/{owner}/{repo}/pulls/{number}",
+                headers={"Accept": "application/vnd.github.diff"},
+            )
+        except httpx.RequestError:
+            return None
+        self.last_rate_limit = RateLimit.from_headers(resp.headers)
+        if resp.status_code != 200:
+            return None
+        text = resp.text or ""
+        if len(text) > max_bytes:
+            text = text[:max_bytes] + "\n\n[... diff truncated ...]\n"
+        return text
+
     async def get_rate_limit(self) -> RateLimit:
         data = await self._get("/rate_limit")
         core = data.get("resources", {}).get("core", data.get("rate", {}))

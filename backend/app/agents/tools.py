@@ -160,3 +160,81 @@ SUBMIT_REVIEW_TOOL = ToolDefinition(
         },
     },
 )
+
+
+# ---------------------------------------------------------------------------
+# Agent D 终止工具
+# ---------------------------------------------------------------------------
+
+REPORT_PROFILE_TOOL = ToolDefinition(
+    name="report_profile",
+    description=(
+        "Submit the repository onboarding profile (test/install commands, "
+        "code style notes, contributing summary, merged PR examples). You MUST "
+        "call this tool exactly once. profile_quality=low is acceptable but "
+        "you still MUST provide best-effort test_command / install_command — "
+        "do NOT refuse to output."
+    ),
+    input_schema={
+        "type": "object",
+        "required": [
+            "test_command",
+            "install_command",
+            "code_style_notes",
+            "contributing_summary",
+            "forbidden_patterns",
+            "pr_title_convention",
+            "merged_pr_examples",
+            "profile_quality",
+            "quality_reason",
+        ],
+        "properties": {
+            "test_command":    {"type": "string"},
+            "install_command": {"type": "string"},
+            "lint_command":    {"type": ["string", "null"]},
+            "code_style_notes": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "≤500 chars summary of naming/indent/comment conventions.",
+            },
+            "contributing_summary": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "≤500 chars summary of CONTRIBUTING.md key requirements.",
+            },
+            "forbidden_patterns": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Patterns to AVOID, e.g. 'do not modify generated/', "
+                    "'do not add new dependencies'."
+                ),
+            },
+            "pr_title_convention": {
+                "type": "string",
+                "description": "e.g. 'fix(scope): summary' or '[BUG] ...'",
+            },
+            "merged_pr_examples": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                    "type": "object",
+                    "required": ["url", "title_pattern", "diff_style_note"],
+                    "properties": {
+                        "url":             {"type": "string"},
+                        "title_pattern":   {"type": "string"},
+                        "diff_style_note": {"type": "string"},
+                    },
+                },
+            },
+            "profile_quality": {
+                "type": "string",
+                "enum": ["high", "medium", "low"],
+            },
+            "quality_reason": {
+                "type": "string",
+                "maxLength": 200,
+            },
+        },
+    },
+)

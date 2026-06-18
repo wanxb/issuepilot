@@ -85,6 +85,8 @@ class AgentBInput(BaseModel):
     attempt_number: int = 1
     branch_name: str
     forked_repo: str
+    # 1.5c: repo_profile 注入（缺失时降级为通用规则提醒）
+    repo_profile_block: str | None = None
 
 
 class AgentBOutput(BaseModel):
@@ -210,3 +212,49 @@ class AgentCOutput(BaseModel):
             if not v or not v.strip():
                 raise ValueError("pr_body is required when verdict=APPROVED")
         return v
+
+
+# ---------------------------------------------------------------------------
+# Agent D — Repo Onboarding（仓库画像）
+# ---------------------------------------------------------------------------
+
+
+class MergedPRSample(BaseModel):
+    """Agent D 输入侧：profile_worker 预取的 merged PR 元数据 + diff 片段。"""
+
+    url: str
+    title: str
+    diff_snippet: str = ""        # 截断后的 unified diff 头部
+
+
+class AgentDInput(BaseModel):
+    repo_full_name: str
+    repo_language: str | None = None
+    # 由 profile_worker 用 GitHub API 预取后注入
+    readme_content: str = ""              # 截断后
+    contributing_content: str | None = None
+    package_manifest_path: str | None = None
+    package_manifest_content: str | None = None
+    test_workflow_content: str | None = None
+    merged_pr_samples: list[MergedPRSample] = Field(default_factory=list)
+
+
+class MergedPRExample(BaseModel):
+    """Agent D 输出侧：被选中的代表性 PR 简要描述。"""
+
+    url: str
+    title_pattern: str
+    diff_style_note: str
+
+
+class AgentDOutput(BaseModel):
+    test_command: str = ""                # 找不到时 ""，不可拒绝输出
+    install_command: str = ""
+    lint_command: str | None = None
+    code_style_notes: str = Field(default="", max_length=500)
+    contributing_summary: str = Field(default="", max_length=500)
+    forbidden_patterns: list[str] = Field(default_factory=list)
+    pr_title_convention: str = ""
+    merged_pr_examples: list[MergedPRExample] = Field(default_factory=list, max_length=3)
+    profile_quality: Literal["high", "medium", "low"]
+    quality_reason: str = Field(default="", max_length=200)

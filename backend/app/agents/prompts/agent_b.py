@@ -34,6 +34,10 @@ SYSTEM_PROMPT = textwrap.dedent("""\
     - Do not introduce new external dependencies unless the issue explicitly requires them.
     - Commit message format: "fix: {description}" or "feat: {description}" (English, imperative).
     - All existing tests must pass before you call report_completion.
+    - HONOR the <repo_profile> block in the user message: use its test_command /
+      install_command, match its pr_title_convention, respect every entry in
+      forbidden_patterns. When the block says "(none ...)", invest a few turns
+      reading CONTRIBUTING + recent diffs before editing — do NOT guess.
 
     EXECUTION PHASES (in order):
     ANALYZE  → Read repo structure, locate relevant files, understand the bug/feature.
@@ -55,6 +59,15 @@ SYSTEM_PROMPT = textwrap.dedent("""\
 """)
 
 
+_PROFILE_FALLBACK_BLOCK = (
+    "(none — no repo profile cached. Before editing, "
+    "READ the repository's CONTRIBUTING.md (if any), package manifest "
+    "(pyproject.toml / package.json / etc.), and at least one recent merged "
+    "commit's diff to learn the conventions. Do NOT introduce style or "
+    "process choices that differ from what you observe.)"
+)
+
+
 def build_prompt(input: AgentBInput) -> str:
     """Build the complete user-facing prompt (passed as stdin to claude -p -)."""
     parts: list[str] = []
@@ -70,6 +83,14 @@ def build_prompt(input: AgentBInput) -> str:
     # Evaluation context (from Agent A)
     parts.append(
         f"Background (Agent A evaluation):\n{input.evaluation_summary}\n"
+    )
+
+    # 1.5c: repo profile（Agent D 输出，缺失时降级为自学习提醒）
+    profile_block = (input.repo_profile_block or "").strip() or _PROFILE_FALLBACK_BLOCK
+    parts.append(
+        "<repo_profile>\n"
+        f"{profile_block}\n"
+        "</repo_profile>\n"
     )
 
     # Review feedback (only on retry)

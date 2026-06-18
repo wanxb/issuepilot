@@ -99,13 +99,21 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 > **沙箱镜像**：entrypoint.sh 已更新；下次跑端到端前需 `docker build -t agent-sandbox-python:latest sandbox/python/`。
 
-#### 1.5c — Agent D + repo_profiles 异步生成 + Agent B/C 注入
+#### 1.5c — Agent D + repo_profiles 异步生成 + Agent B/C 注入 ✅ 已完成 2026-06-18
 
-- [ ] Agent D Harness + Prompt v1.0（SingleShotLoop，复用 agent-sandbox-{lang} 镜像，窄 allowedTools）
-- [ ] `profile_queue` Celery 队列 + `profile_worker`（异步生成，TTL 90 天）
-- [ ] CrawlerService 在 upsert 新 repo 时入 profile_queue（不阻塞 analyze_queue）
-- [ ] Agent B system prompt 注入 profile（profile 缺失时降级自学习）
-- [ ] review_worker 注入 repo_style_notes / repo_contributing_summary（接口已就位）
+- [x] Agent D schemas（AgentDInput / AgentDOutput / MergedPRSample / MergedPRExample）+ REPORT_PROFILE_TOOL
+- [x] Agent D prompt v1.0（**MVP 路径选择**：SingleShot API 调用，而非 AGENT_DESIGN 建议的沙箱模式；profile_worker 用 GitHub API 预取 README/CONTRIBUTING/manifest/PR diff 后注入，省去沙箱启动成本，正式版可在 2.x 改为沙箱）
+- [x] Agent D harness（SingleShot + Tool Use）
+- [x] GitHubClient 扩展：`get_file_content` + `get_pr_diff`（Accept: vnd.github.diff）
+- [x] `profile_queue` Celery 队列 + `profile_worker.generate_profile(repo_id, force=False)`，TTL 90 天，旧 profile 过期自动重生
+- [x] CrawlerService 在 `_upsert_repo` 中检测 RepoProfile fresh 状态，缺失/过期时入 profile_queue（不阻塞 analyze_queue）
+- [x] AgentBInput 新增 `repo_profile_block` 字段；dev_worker 加载 RepoProfile 渲染为文本块注入 prompt；缺失时 prompt 走自学习降级
+- [x] Agent B SYSTEM_PROMPT 加 "HONOR <repo_profile>" 一条规则
+- [x] review_worker 加载 RepoProfile 注入 `repo_style_notes` / `repo_contributing_summary`（Agent C prompt 已就位）
+- [x] celery_app 新增 profile_queue + route + import；docker-compose worker 命令补 profile_queue
+- [x] models.yaml + models.example.yaml 增 agent_d 配置（含 retry / fallback）
+- [x] 单测：8 项 test_agent_d.py 全绿（5 schema + 3 harness 路径）；总 78 单测 + 21 integration 全绿
+- [x] worker 容器重建后 4 队列 / 5 任务正确注册
 
 #### 1.5d — PR 创建 + PR_SUBMITTED 链路
 

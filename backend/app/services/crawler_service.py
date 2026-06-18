@@ -259,6 +259,7 @@ class CrawlerService:
             select(Repository).where(Repository.full_name == gh.full_name),
         )
         repo = result.scalar_one_or_none()
+        is_new = False
         if repo is None:
             repo = Repository(
                 full_name=gh.full_name,
@@ -275,6 +276,7 @@ class CrawlerService:
                 last_crawled_at=datetime.now(timezone.utc),
             )
             self._s.add(repo)
+            is_new = True
         else:
             repo.description = gh.description
             repo.primary_language = gh.language
@@ -285,7 +287,56 @@ class CrawlerService:
             repo.last_commit_at = gh.pushed_at
             repo.last_crawled_at = datetime.now(timezone.utc)
         await self._s.flush()
+
+        # 1.5c: 缺失 / 过期的 profile 异步入队（不阻塞主流程）
+        await self._maybe_enqueue_profile(repo, is_new=is_new)
         return repo
+
+    async def _maybe_enqueue_profile(
+        self,
+        repo: Repository,
+        *,
+        is_new: bool,
+    ) -> None:
+        """RepoProfile 缺失 / 过期 → 入 profile_queue。
+
+        新 repo 总是入队；老 repo 仅当 profile 缺失或过期时入。
+        失败仅记日志，不阻塞 crawl。
+        """
+        from app.models.repo_profile import RepoProfile  # 延迟 import 避免循环
+
+        existing = await self._s.execute(
+            select(RepoProfile).where(RepoProfile.repo_id == repo.id),
+        )
+        profile = existing.scalar_one_or_none()
+        now = datetime.now(timezone.utc)
+        needs_profile = (
+            profile is None
+            or profile.expires_at <= now
+        )
+        if not (is_new or needs_profile):
+            return
+
+        from app.workers.celery_app import celery_app
+        try:
+            celery_app.send_task(
+                "app.workers.profile_worker.generate_profile",
+                args=[str(repo.id)],
+                kwargs={"force": False},
+                queue="profile_queue",
+            )
+            log.info(
+                "crawler.profile_enqueued",
+                repo_id=str(repo.id),
+                full_name=repo.full_name,
+                reason="new" if is_new else ("expired" if profile else "missing"),
+            )
+        except Exception as e:
+            log.error(
+                "crawler.profile_enqueue_failed",
+                repo_id=str(repo.id),
+                error=str(e),
+            )
 
     async def _upsert_issues(
         self,
