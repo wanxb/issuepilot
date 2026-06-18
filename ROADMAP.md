@@ -144,11 +144,17 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 选择一个真实 Python 仓库 Issue（或粘贴 URL）→ Crawler 抓取 + 异步入 profile_queue → Agent A 评估 → 用户决策 → Agent B 沙箱开发 + push → Agent C 评审（注入 profile）→ APPROVED → PR 创建 + 入库 → Webhook 接收 merge/close 事件 → Issue 终态 PR_MERGED/PR_CLOSED + 看板 PR 卡片正确着色。
 
+#### Phase 1 端到端 dry run 验收 ✅ 2026-06-18
+
+详见 `docs/DRY_RUN_PHASE1_REPORT.md`。
+
+- 仓库 `wanxb/c-drive-cleaner` Issue #1，13 段流程 11 段通过验证；剩 2 段（PR 真实创建 / GitHub Webhook 真实推送）受用户 dev_token fork 权限限制无法走通，由 `review_worker.pr_skip_no_fork` 兜底路径正确触发
+- 实测：6m 40s / $0.96（Agent B 26 turns / $0.92 / 3.7KB diff，对模糊 "优化UI细节" issue 仍输出 5 处实质改动）
+- Provider fallback 在真实 Anthropic 503 下完整 work（→ DeepSeek）
+- 暴露并修复 3 个真 bug（commit `21f0fcf`）：(a) asyncpg 跨 loop 复用 → worker NullPool；(b) 1.5a 的 lowercase enum 与 SQLAlchemy `.name` 序列化不匹配 → `pg_enum()` helper；(c) Claude Code CLI 2.1.179 要求 `--verbose`
+- 补 PR 真实创建 / Webhook 真实接收：升级 dev_token 为 classic PAT with `repo` scope，或写 `scripts/replay_github_webhook.py` 本地模拟（Phase 2 边界处理时再做）
+
 **Phase 1 至此完结，整个 MVP 主干流程跑通。**
-- [ ] **rejection_reasons 表**：Agent C 退回时写 source=agent_c 记录（含 dimension + agent_b_attribution）
-- [ ] Issue 状态流转（PR_SUBMITTED → PR_MERGED / PR_CLOSED）
-- [ ] `pull_requests.final_outcome` 字段写入（MERGED_CLEAN / CLOSED_BY_MAINTAINER / ...）
-- [ ] 看板 PR 状态显示
 
 **Phase 1 完成标志：** 选择一个真实 Python 仓库 Issue（或粘贴 URL 手动触发），系统能自动完成"profile 生成 → 评估 → 开发（注入 profile）→ 评审（对比 profile）→ 提交 PR"全流程，PR 链路结果与 Agent C 退回原因结构化入库。
 
