@@ -6,7 +6,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import IssueDifficulty, IssueSource, IssueStatus
+from app.models.enums import (
+    IssueDifficulty,
+    IssueSource,
+    IssueStatus,
+    PRFinalOutcome,
+    PullRequestStatus,
+)
 
 
 class RepoView(BaseModel):
@@ -26,6 +32,18 @@ class EvaluationView(BaseModel):
     is_fallback: bool = False
 
 
+class PullRequestView(BaseModel):
+    """看板 PR 卡片需要的字段（1.5e）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+    github_pr_number: int
+    github_pr_url: str
+    status: PullRequestStatus
+    final_outcome: PRFinalOutcome | None = None
+    title: str
+    submitted_at: datetime
+
+
 class IssueListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -37,6 +55,7 @@ class IssueListItem(BaseModel):
     repository: RepoView
     evaluation: EvaluationView | None = None
     active_dev_task_id: uuid.UUID | None = None
+    pull_request: PullRequestView | None = None
 
 
 class IssueListResponse(BaseModel):

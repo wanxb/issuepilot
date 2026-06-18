@@ -126,12 +126,25 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] dev_worker 把 branch_pushed 状态持久化到 DB
 - [x] 单测：7 项 test_pr_service.py 全绿（happy + 422 dup + branch missing + 500 + no_token + default_branch）；总 85 单测 + 21 integration 全绿
 
-#### 1.5e — Webhook 接收 + PRTracker + 看板
+#### 1.5e — Webhook 接收 + PRTracker + 看板 ✅ 已完成 2026-06-18
 
-- [ ] GitHub Webhook 端点（HMAC-SHA256 验签）+ pull_request / pull_request_review / issue_comment 事件路由
-- [ ] PRTracker Service：写 pr_outcomes + 更新 `pull_requests.status` / `final_outcome`
-- [ ] Issue 状态流转：PR_SUBMITTED → PR_MERGED / PR_CLOSED
-- [ ] 看板 PR 状态卡片（final_outcome 着色 + PR 链接）
+- [x] POST `/api/v1/webhooks/github` 端点 + HMAC-SHA256 验签（`verify_signature` 用 hmac.compare_digest 防时序攻击）
+- [x] 事件路由：`pull_request.closed` / `pull_request_review.submitted` / `issue_comment.created` (仅 PR 评论) / `ping`
+- [x] PRTracker Service：`find_by_url` + `record_event` + `on_pr_closed` / `on_review_received` / `on_comment_received`
+- [x] PR closed 写 `pull_requests.status` + `final_outcome`（merged → MERGED + MERGED_CLEAN；closed → CLOSED + CLOSED_BY_MAINTAINER）
+- [x] IssueService.mark_pr_merged / mark_pr_closed（PR_SUBMITTED → PR_MERGED / PR_CLOSED）
+- [x] 未追踪的 PR / 非 closed action / 非 PR comment：200 OK + skip（不让 GitHub 重试）
+- [x] IssueListItem 返回最新 `pull_request`（number/url/status/final_outcome/title/submitted_at）；issues API 批量 join 查询
+- [x] 前端 PR 卡片（`PRPanel`）+ final_outcome 着色 badge + PR 链接
+- [x] 单测：5 项 test_webhook_signature.py 全绿（HMAC valid / missing / wrong prefix / tampered / wrong secret）
+- [x] 集成测试：7 项 test_webhook_api.py（401 invalid sig / ping / merged → PR_MERGED / closed → PR_CLOSED / untracked / review_received / issue_comment 仅 PR）—— 需 host 端 docker exec 跑（同 decide_api 范式）
+- [x] 端到端 curl 验证：未配置 secret → 500 WEBHOOK_NOT_CONFIGURED；路由 + 序列化 + Settings 链路通
+
+#### 1.5 完成标志 ✅
+
+选择一个真实 Python 仓库 Issue（或粘贴 URL）→ Crawler 抓取 + 异步入 profile_queue → Agent A 评估 → 用户决策 → Agent B 沙箱开发 + push → Agent C 评审（注入 profile）→ APPROVED → PR 创建 + 入库 → Webhook 接收 merge/close 事件 → Issue 终态 PR_MERGED/PR_CLOSED + 看板 PR 卡片正确着色。
+
+**Phase 1 至此完结，整个 MVP 主干流程跑通。**
 - [ ] **rejection_reasons 表**：Agent C 退回时写 source=agent_c 记录（含 dimension + agent_b_attribution）
 - [ ] Issue 状态流转（PR_SUBMITTED → PR_MERGED / PR_CLOSED）
 - [ ] `pull_requests.final_outcome` 字段写入（MERGED_CLEAN / CLOSED_BY_MAINTAINER / ...）

@@ -7,7 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DevLogStream } from "@/components/dashboard/dev-log-stream";
 import { ApiError, api } from "@/lib/api";
-import type { DecideAction, IssueListItem, IssueListResponse } from "@/lib/types";
+import type {
+  DecideAction,
+  IssueListItem,
+  IssueListResponse,
+  PRFinalOutcome,
+  PullRequestView,
+} from "@/lib/types";
 
 const POLL_MS = 5_000;
 
@@ -137,9 +143,55 @@ function IssueRow({ item, onDecided }: IssueRowProps) {
               <DevLogStream devTaskId={item.active_dev_task_id} />
             </CardContent>
           )}
+        {/* PR 卡片（PR_SUBMITTED / PR_MERGED / PR_CLOSED 状态时展示） */}
+        {item.pull_request && (
+          <CardContent>
+            <PRPanel pr={item.pull_request} />
+          </CardContent>
+        )}
       </Card>
     </li>
   );
+}
+
+function PRPanel({ pr }: { pr: PullRequestView }) {
+  return (
+    <div className="space-y-2 rounded border border-border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Badge variant={prStatusVariant(pr.status, pr.final_outcome)}>
+          {pr.final_outcome ?? pr.status}
+        </Badge>
+        <a
+          href={pr.github_pr_url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-sm font-medium hover:underline"
+        >
+          PR #{pr.github_pr_number}
+        </a>
+        <span className="text-xs text-muted-foreground">
+          · {new Date(pr.submitted_at).toLocaleString()}
+        </span>
+      </div>
+      <p className="line-clamp-2 text-xs text-muted-foreground">{pr.title}</p>
+    </div>
+  );
+}
+
+function prStatusVariant(
+  status: PullRequestView["status"],
+  outcome: PRFinalOutcome | null,
+): "default" | "success" | "warning" | "secondary" | "destructive" | "outline" {
+  if (outcome === "MERGED_CLEAN" || outcome === "MERGED_WITH_CHANGES") return "success";
+  if (
+    outcome === "CLOSED_BY_MAINTAINER" ||
+    outcome === "CLOSED_BY_US" ||
+    outcome === "REVERTED"
+  ) {
+    return "destructive";
+  }
+  if (outcome === "STALE") return "secondary";
+  return status === "OPEN" ? "warning" : status === "MERGED" ? "success" : "destructive";
 }
 
 function DecideActions({ item, onDecided }: IssueRowProps) {

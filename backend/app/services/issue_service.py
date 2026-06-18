@@ -156,6 +156,14 @@ class IssueService:
         """IN_REVIEW → PR_SUBMITTED"""
         return await self.transition(issue, to=IssueStatus.PR_SUBMITTED)
 
+    async def mark_pr_merged(self, issue: Issue) -> Issue:
+        """PR_SUBMITTED → PR_MERGED"""
+        return await self.transition(issue, to=IssueStatus.PR_MERGED)
+
+    async def mark_pr_closed(self, issue: Issue) -> Issue:
+        """PR_SUBMITTED → PR_CLOSED"""
+        return await self.transition(issue, to=IssueStatus.PR_CLOSED)
+
     async def finish_analyzing(
         self,
         issue: Issue,

@@ -38,6 +38,24 @@ export interface EvaluationView {
   is_fallback: boolean;
 }
 
+export type PullRequestStatus = "OPEN" | "MERGED" | "CLOSED";
+export type PRFinalOutcome =
+  | "MERGED_CLEAN"
+  | "MERGED_WITH_CHANGES"
+  | "CLOSED_BY_MAINTAINER"
+  | "CLOSED_BY_US"
+  | "REVERTED"
+  | "STALE";
+
+export interface PullRequestView {
+  github_pr_number: number;
+  github_pr_url: string;
+  status: PullRequestStatus;
+  final_outcome: PRFinalOutcome | null;
+  title: string;
+  submitted_at: string;
+}
+
 export interface IssueListItem {
   id: string;
   status: IssueStatus;
@@ -48,6 +66,7 @@ export interface IssueListItem {
   repository: RepoView;
   evaluation: EvaluationView | null;
   active_dev_task_id: string | null;
+  pull_request: PullRequestView | null;
 }
 
 export type DevLogLevel = "debug" | "info" | "warning" | "error";

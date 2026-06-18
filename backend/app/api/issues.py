@@ -19,6 +19,7 @@ from app.models.dev_task import DevTask
 from app.models.enums import DevTaskStatus, IssueSource, IssueStatus
 from app.models.evaluation import Evaluation
 from app.models.issue import Issue
+from app.models.pull_request import PullRequest
 from app.models.repository import Repository
 from app.schemas.decide import DecideRequest
 from app.schemas.issue import IssueListItem, IssueListResponse
@@ -122,10 +123,32 @@ async def list_issues(
             if t_issue_id not in active_task_map:
                 active_task_map[t_issue_id] = t_id
 
+    # 1.5e: 批量查找处于 PR_* 状态的最新 PR
+    pr_map: dict[uuid.UUID, PullRequest] = {}
+    pr_issue_ids = [
+        r.id
+        for r in rows
+        if r.status in (IssueStatus.PR_SUBMITTED, IssueStatus.PR_MERGED, IssueStatus.PR_CLOSED)
+    ]
+    if pr_issue_ids:
+        pr_stmt = (
+            select(PullRequest)
+            .where(PullRequest.issue_id.in_(pr_issue_ids))
+            .order_by(PullRequest.submitted_at.desc())
+        )
+        pr_rows = (await session.execute(pr_stmt)).scalars().all()
+        for pr in pr_rows:
+            if pr.issue_id not in pr_map:
+                pr_map[pr.issue_id] = pr
+
     items: list[IssueListItem] = []
     for r in rows:
         item = IssueListItem.model_validate(r)
         item.active_dev_task_id = active_task_map.get(r.id)
+        pr_row = pr_map.get(r.id)
+        if pr_row is not None:
+            from app.schemas.issue import PullRequestView
+            item.pull_request = PullRequestView.model_validate(pr_row)
         items.append(item)
 
     return IssueListResponse(items=items, page=page, page_size=page_size, total=total)
