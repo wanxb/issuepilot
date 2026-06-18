@@ -129,8 +129,36 @@ class SandboxManager:
         使用 Docker get_archive API 提取文件（容器已停止时仍可读）。
         读取失败（文件不存在、JSON 无效）时返回 None。
         """
+        data = self._read_workspace_file(container, "/workspace/.agent_report.json")
+        if data is None:
+            return None
         try:
-            bits, _ = container.get_archive("/workspace/.agent_report.json")
+            return json.loads(data)
+        except Exception as e:
+            log.debug("sandbox.collect_report_parse_failed", error=str(e))
+            return None
+
+    def collect_diff(self, container: Any, *, max_bytes: int = 200_000) -> str | None:
+        """从容器内 /workspace/.agent_diff.patch 读取 git diff 文本。
+
+        在 entrypoint.sh 中由 `git diff $BASE_SHA..HEAD` 产出。
+        返回 None 表示文件不存在 / 读取失败 / 容器异常。
+        超过 max_bytes 时按字节截断（diff 通常 ANSI 安全，UTF-8 解码 errors=replace）。
+        """
+        raw = self._read_workspace_file(container, "/workspace/.agent_diff.patch")
+        if raw is None:
+            return None
+        if len(raw) > max_bytes:
+            raw = raw[:max_bytes]
+            text = raw.decode("utf-8", errors="replace") + "\n\n[... diff truncated ...]\n"
+        else:
+            text = raw.decode("utf-8", errors="replace")
+        return text
+
+    def _read_workspace_file(self, container: Any, path: str) -> bytes | None:
+        """通用 helper：用 Docker get_archive 提取容器内单个文件的字节。"""
+        try:
+            bits, _ = container.get_archive(path)
             buf = io.BytesIO(b"".join(bits))
             with tarfile.open(fileobj=buf) as tf:
                 members = tf.getmembers()
@@ -139,10 +167,9 @@ class SandboxManager:
                 f = tf.extractfile(members[0])
                 if f is None:
                     return None
-                data = f.read()
-            return json.loads(data)
+                return f.read()
         except Exception as e:
-            log.debug("sandbox.collect_report_failed", error=str(e))
+            log.debug("sandbox.read_file_failed", path=path, error=str(e))
             return None
 
     def wait(self, container: Any, *, timeout: int | None = None) -> int:

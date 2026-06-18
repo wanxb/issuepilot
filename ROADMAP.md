@@ -84,19 +84,41 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] ORM 模型：`repo_profiles`、`review_tasks`、`pull_requests`、`pr_outcomes`、`rejection_reasons`
 - [x] Alembic migration `c2d6e2f6a2b2`（upgrade/downgrade 双向验证通过）
 
-#### 1.5b~e（待启动）
+#### 1.5b — Agent C harness + review_worker + 评审拒绝路径 ✅ 已完成 2026-06-18
 
-- [ ] Agent C Harness（SingleShotLoop）
-- [ ] Agent C Prompt v1.0（system prompt 注入 `repo_profile.code_style_notes`，`code_style` 评分直接对比 profile）
-- [ ] review_worker（Celery）
-- [ ] **Agent D Harness**（SingleShotLoop，复用 agent-sandbox-{lang} 镜像，窄 allowedTools）
-- [ ] **Agent D Prompt v1.0**
-- [ ] **`repo_profiles` 表 + profile_queue + profile_worker**（异步生成，TTL 90 天）
-- [ ] **CrawlerService 在 upsert 新 repo 时入 profile_queue**（不阻塞 analyze_queue）
-- [ ] **Agent B system prompt 注入 profile**（profile 缺失时降级自学习，PoC 流程不变）
-- [ ] PR Service（GitHub API 创建 PR）
-- [ ] GitHub Webhook 接收（PR merge / close / review）
-- [ ] **PRTracker Service**——把 PR 生命周期事件写入 `pr_outcomes` 表
+- [x] Agent C schemas（AgentCInput / AgentCOutput / ReviewDimension / TestResult）+ SUBMIT_REVIEW_TOOL
+- [x] Agent C prompt v1.0（5 维评分 + 通过门槛 + 退回意见规范 + 反 injection XML 边界 + 可注入 repo_style_notes/contributing_summary）
+- [x] Agent C harness（SingleShotLoop，schema 校验 + tool 未调检测）
+- [x] git diff 采集链路：entrypoint.sh 记录 BASE_SHA + `git diff base..HEAD` → SandboxManager.collect_diff → dev_tasks.git_diff / base_sha 列 + alembic migration `d3e7f3a7c3d3`
+- [x] review_worker（Celery；APPROVED 留在 IN_REVIEW 待 1.5d；REJECTED 转 REVIEW_REJECTED）
+- [x] Agent C REJECTED 时按 5 维最低未通过维度推断 category/severity/dimension，写 `rejection_reasons` source=agent_c
+- [x] IssueService.mark_in_review / mark_review_rejected
+- [x] dev_worker 成功路径 chain 触发 review_worker
+- [x] celery_app 补齐 dev_worker + review_worker import
+- [x] 单测：11 项 test_agent_c.py 全绿（5 schema + 2 verdict + 2 失败路径）
+
+> **沙箱镜像**：entrypoint.sh 已更新；下次跑端到端前需 `docker build -t agent-sandbox-python:latest sandbox/python/`。
+
+#### 1.5c — Agent D + repo_profiles 异步生成 + Agent B/C 注入
+
+- [ ] Agent D Harness + Prompt v1.0（SingleShotLoop，复用 agent-sandbox-{lang} 镜像，窄 allowedTools）
+- [ ] `profile_queue` Celery 队列 + `profile_worker`（异步生成，TTL 90 天）
+- [ ] CrawlerService 在 upsert 新 repo 时入 profile_queue（不阻塞 analyze_queue）
+- [ ] Agent B system prompt 注入 profile（profile 缺失时降级自学习）
+- [ ] review_worker 注入 repo_style_notes / repo_contributing_summary（接口已就位）
+
+#### 1.5d — PR 创建 + PR_SUBMITTED 链路
+
+- [ ] PR Service（GitHub API 创建 PR；处理 head 推送 + base_branch 解析）
+- [ ] dev_worker / review_worker 接力：APPROVED → 推送 fork 分支 → 创建 PR → 写 `pull_requests` + pr_outcomes(submitted)
+- [ ] Issue 状态流转：IN_REVIEW → PR_SUBMITTED
+
+#### 1.5e — Webhook 接收 + PRTracker + 看板
+
+- [ ] GitHub Webhook 端点（HMAC-SHA256 验签）+ pull_request / pull_request_review / issue_comment 事件路由
+- [ ] PRTracker Service：写 pr_outcomes + 更新 `pull_requests.status` / `final_outcome`
+- [ ] Issue 状态流转：PR_SUBMITTED → PR_MERGED / PR_CLOSED
+- [ ] 看板 PR 状态卡片（final_outcome 着色 + PR 链接）
 - [ ] **rejection_reasons 表**：Agent C 退回时写 source=agent_c 记录（含 dimension + agent_b_attribution）
 - [ ] Issue 状态流转（PR_SUBMITTED → PR_MERGED / PR_CLOSED）
 - [ ] `pull_requests.final_outcome` 字段写入（MERGED_CLEAN / CLOSED_BY_MAINTAINER / ...）

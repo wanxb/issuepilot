@@ -28,6 +28,10 @@ echo "=== SETUP: cloning ${REPO_FULL_NAME} ==="
 git clone --depth=1 "https://x-token:${TOKEN}@github.com/${REPO_FULL_NAME}.git" /workspace
 cd /workspace
 
+# 记录 clone 后的 base SHA（用于稍后产出 git diff base..HEAD）
+export BASE_SHA="$(git rev-parse HEAD)"
+echo "=== SETUP: base SHA = ${BASE_SHA} ==="
+
 echo "=== SETUP: creating branch ${BRANCH_NAME} ==="
 git checkout -b "${BRANCH_NAME}"
 
@@ -56,4 +60,11 @@ echo "${AGENT_PROMPT_B64}" | base64 -d | claude -p - \
 
 EXIT_CODE=$?
 echo "=== SYSTEM: Agent B finished (exit=${EXIT_CODE}) ==="
+
+# 产出 git diff 供 Agent C 评审采集（best-effort，不影响 exit code）
+echo "=== SYSTEM: capturing diff vs base SHA ${BASE_SHA} ==="
+git diff "${BASE_SHA}..HEAD" > /workspace/.agent_diff.patch 2>/dev/null || true
+DIFF_BYTES=$(wc -c < /workspace/.agent_diff.patch 2>/dev/null || echo 0)
+echo "=== SYSTEM: diff captured (${DIFF_BYTES} bytes) ==="
+
 exit $EXIT_CODE

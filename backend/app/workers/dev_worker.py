@@ -371,6 +371,13 @@ async def _sandbox_phase(
             report_kind = file_report.get("kind")
             report_payload = file_report.get("payload")
 
+    # 1.5b: 采集 git diff（容器仍在但已退出，文件系统可读）
+    git_diff: str | None = None
+    if not timed_out:
+        git_diff = await loop.run_in_executor(
+            executor, lambda: _sandbox.collect_diff(container)
+        )
+
     # 停止并清理容器
     if not timed_out:
         await loop.run_in_executor(executor, lambda: _sandbox.stop(container))
@@ -386,6 +393,7 @@ async def _sandbox_phase(
         "timed_out": timed_out,
         "total_cost_usd": total_cost_usd,
         "num_turns": num_turns,
+        "git_diff": git_diff,
         "failure_reason": None,
         "failure_detail": None,
     }
@@ -407,8 +415,12 @@ async def _result_phase(
     report_payload = sandbox_result.get("report_payload") or {}
     total_cost_usd = sandbox_result.get("total_cost_usd", 0.0)
     num_turns = sandbox_result.get("num_turns", 0)
+    git_diff = sandbox_result.get("git_diff")
     failure_reason = sandbox_result.get("failure_reason")
     failure_detail = sandbox_result.get("failure_detail")
+
+    # 是否需要触发 review_worker
+    enqueue_review = False
 
     async with session_scope() as s:
         svc = IssueService(s)
@@ -422,6 +434,8 @@ async def _result_phase(
         dev_task.finished_at = now
         dev_task.total_cost_usd = total_cost_usd
         dev_task.loop_iterations = num_turns
+        if git_diff is not None:
+            dev_task.git_diff = git_diff
 
         if success:
             # 成功路径：IN_DEV → DEV_TESTING → QUEUED_REVIEW
@@ -440,6 +454,7 @@ async def _result_phase(
             try:
                 await svc.mark_dev_testing(issue)
                 await svc.mark_queued_review(issue)
+                enqueue_review = True
             except InvalidTransitionError as e:
                 log.error("dev_worker.transition_failed", error=str(e))
 
@@ -467,6 +482,15 @@ async def _result_phase(
             except InvalidTransitionError as e:
                 log.error("dev_worker.transition_failed", error=str(e))
 
+    # 1.5b: 成功路径下触发 review_worker（必须在 DB session 关闭后发，
+    # 否则 worker 可能比 commit 还快读到旧状态）
+    if enqueue_review:
+        celery_app.send_task(
+            "app.workers.review_worker.review_dev_task",
+            args=[str(issue_id), str(dev_task_id)],
+            queue="review_queue",
+        )
+
     log.info(
         "dev_worker.done",
         issue_id=str(issue_id),
@@ -474,6 +498,7 @@ async def _result_phase(
         success=success,
         cost=total_cost_usd,
         turns=num_turns,
+        review_enqueued=enqueue_review,
     )
     return {
         "success": success,

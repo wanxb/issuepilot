@@ -144,6 +144,14 @@ class IssueService:
         """DEV_TESTING → QUEUED_REVIEW"""
         return await self.transition(issue, to=IssueStatus.QUEUED_REVIEW)
 
+    async def mark_in_review(self, issue: Issue) -> Issue:
+        """QUEUED_REVIEW → IN_REVIEW"""
+        return await self.transition(issue, to=IssueStatus.IN_REVIEW)
+
+    async def mark_review_rejected(self, issue: Issue) -> Issue:
+        """IN_REVIEW → REVIEW_REJECTED"""
+        return await self.transition(issue, to=IssueStatus.REVIEW_REJECTED)
+
     async def finish_analyzing(
         self,
         issue: Issue,

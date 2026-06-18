@@ -54,6 +54,10 @@ class DevTask(Base, UUIDPKMixin, TimestampMixin):
     # 执行结果（report_completion / report_failure 写入）
     files_changed: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     diff_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 1.5b: 从沙箱采集的完整 git diff，供 Agent C 评审使用（≤200KB，超出截断）
+    git_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # base SHA：clone 时记录，便于 PR 创建 / revert 检测时锁定起点
+    base_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     failure_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 

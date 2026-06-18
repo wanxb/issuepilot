@@ -57,3 +57,5 @@ def ping() -> str:
 # 显式 import 所有 worker 模块，让 @celery_app.task 装饰器在 import 时注册任务
 # （autodiscover_tasks 是为 package/tasks 约定准备的，本项目不用那个约定）
 from app.workers import analyze_worker  # noqa: E402, F401
+from app.workers import dev_worker      # noqa: E402, F401
+from app.workers import review_worker   # noqa: E402, F401

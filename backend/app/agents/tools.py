@@ -82,3 +82,81 @@ EVALUATE_ISSUE_TOOL = ToolDefinition(
         },
     },
 )
+
+
+# ---------------------------------------------------------------------------
+# Agent C 终止工具
+# ---------------------------------------------------------------------------
+
+SUBMIT_REVIEW_TOOL = ToolDefinition(
+    name="submit_review",
+    description=(
+        "Submit the code review verdict for the Agent B diff. You MUST call this "
+        "tool exactly once. When verdict is APPROVED, pr_title and pr_body MUST "
+        "be provided (English). When REJECTED, rejection_reason MUST be provided "
+        "with concrete file names + line numbers + suggested change."
+    ),
+    input_schema={
+        "type": "object",
+        "required": [
+            "verdict",
+            "overall_score",
+            "dimensions",
+            "overall_comment",
+        ],
+        "properties": {
+            "verdict": {
+                "type": "string",
+                "enum": ["APPROVED", "REJECTED"],
+            },
+            "overall_score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10,
+            },
+            "dimensions": {
+                "type": "object",
+                "required": [
+                    "correctness",
+                    "test_coverage",
+                    "code_style",
+                    "security",
+                    "pr_description",
+                ],
+                "additionalProperties": {
+                    "type": "object",
+                    "required": ["score", "passed", "comment"],
+                    "properties": {
+                        "score": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10,
+                        },
+                        "passed": {"type": "boolean"},
+                        "comment": {"type": "string"},
+                    },
+                },
+            },
+            "rejection_reason": {
+                "type": ["string", "null"],
+                "description": (
+                    "Required when verdict=REJECTED. Must include file path, "
+                    "line numbers, and concrete change suggestion. No vague "
+                    "statements like 'code has issues'."
+                ),
+            },
+            "pr_title": {
+                "type": ["string", "null"],
+                "description": "Required when verdict=APPROVED. English imperative.",
+            },
+            "pr_body": {
+                "type": ["string", "null"],
+                "description": "Required when verdict=APPROVED. English Markdown.",
+            },
+            "overall_comment": {
+                "type": "string",
+                "description": "≤200 chars, Chinese, internal summary.",
+            },
+        },
+    },
+)
