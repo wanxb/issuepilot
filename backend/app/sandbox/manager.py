@@ -138,6 +138,20 @@ class SandboxManager:
             log.debug("sandbox.collect_report_parse_failed", error=str(e))
             return None
 
+    def collect_push_status(self, container: Any) -> bool | None:
+        """读 /workspace/.agent_push.ok 或 .agent_push.fail。
+
+        返回：
+            True  -- .agent_push.ok 存在（push 成功）
+            False -- .agent_push.fail 存在（push 失败或无新 commit）
+            None  -- 两个文件都不存在（entrypoint 在 push 阶段前就退出 / 超时）
+        """
+        if self._read_workspace_file(container, "/workspace/.agent_push.ok") is not None:
+            return True
+        if self._read_workspace_file(container, "/workspace/.agent_push.fail") is not None:
+            return False
+        return None
+
     def collect_diff(self, container: Any, *, max_bytes: int = 200_000) -> str | None:
         """从容器内 /workspace/.agent_diff.patch 读取 git diff 文本。
 

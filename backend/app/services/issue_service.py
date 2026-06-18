@@ -152,6 +152,10 @@ class IssueService:
         """IN_REVIEW → REVIEW_REJECTED"""
         return await self.transition(issue, to=IssueStatus.REVIEW_REJECTED)
 
+    async def mark_pr_submitted(self, issue: Issue) -> Issue:
+        """IN_REVIEW → PR_SUBMITTED"""
+        return await self.transition(issue, to=IssueStatus.PR_SUBMITTED)
+
     async def finish_analyzing(
         self,
         issue: Issue,

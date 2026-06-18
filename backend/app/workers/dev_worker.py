@@ -382,9 +382,14 @@ async def _sandbox_phase(
 
     # 1.5b: 采集 git diff（容器仍在但已退出，文件系统可读）
     git_diff: str | None = None
+    branch_pushed: bool | None = None
     if not timed_out:
         git_diff = await loop.run_in_executor(
             executor, lambda: _sandbox.collect_diff(container)
+        )
+        # 1.5d: 采集 push 状态
+        branch_pushed = await loop.run_in_executor(
+            executor, lambda: _sandbox.collect_push_status(container)
         )
 
     # 停止并清理容器
@@ -403,6 +408,7 @@ async def _sandbox_phase(
         "total_cost_usd": total_cost_usd,
         "num_turns": num_turns,
         "git_diff": git_diff,
+        "branch_pushed": branch_pushed,
         "failure_reason": None,
         "failure_detail": None,
     }
@@ -425,6 +431,7 @@ async def _result_phase(
     total_cost_usd = sandbox_result.get("total_cost_usd", 0.0)
     num_turns = sandbox_result.get("num_turns", 0)
     git_diff = sandbox_result.get("git_diff")
+    branch_pushed = sandbox_result.get("branch_pushed")
     failure_reason = sandbox_result.get("failure_reason")
     failure_detail = sandbox_result.get("failure_detail")
 
@@ -445,6 +452,8 @@ async def _result_phase(
         dev_task.loop_iterations = num_turns
         if git_diff is not None:
             dev_task.git_diff = git_diff
+        if branch_pushed is not None:
+            dev_task.branch_pushed = branch_pushed
 
         if success:
             # 成功路径：IN_DEV → DEV_TESTING → QUEUED_REVIEW

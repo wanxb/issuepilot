@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +58,8 @@ class DevTask(Base, UUIDPKMixin, TimestampMixin):
     git_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
     # base SHA：clone 时记录，便于 PR 创建 / revert 检测时锁定起点
     base_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 1.5d: 沙箱内 git push 的结果（True 成功 / False 失败 / None 未尝试）
+    branch_pushed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     failure_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 

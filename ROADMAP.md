@@ -115,11 +115,16 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] 单测：8 项 test_agent_d.py 全绿（5 schema + 3 harness 路径）；总 78 单测 + 21 integration 全绿
 - [x] worker 容器重建后 4 队列 / 5 任务正确注册
 
-#### 1.5d — PR 创建 + PR_SUBMITTED 链路
+#### 1.5d — PR 创建 + PR_SUBMITTED 链路 ✅ 已完成 2026-06-18
 
-- [ ] PR Service（GitHub API 创建 PR；处理 head 推送 + base_branch 解析）
-- [ ] dev_worker / review_worker 接力：APPROVED → 推送 fork 分支 → 创建 PR → 写 `pull_requests` + pr_outcomes(submitted)
-- [ ] Issue 状态流转：IN_REVIEW → PR_SUBMITTED
+- [x] entrypoint.sh 在 diff 采集后 `git push origin BRANCH_NAME`，写 `.agent_push.ok` / `.agent_push.fail`
+- [x] SandboxManager.collect_push_status；dev_tasks.branch_pushed Boolean 列 + migration `e4f8g4b8d4e4`
+- [x] PRService（GitHub API 创建 PR；获取 default_branch；预检 head 分支存在性；422 重复 PR / BranchNotPushed / NoDevToken 分别建模）
+- [x] IssueService.mark_pr_submitted（IN_REVIEW → PR_SUBMITTED）
+- [x] review_worker APPROVED 路径：调 PRService → 写 `pull_requests` + `pr_outcomes(submitted)` → Issue 转 PR_SUBMITTED
+- [x] 异常处理：无 dev_token / 未 push / 重复 / 创建失败时日志 + 保持 IN_REVIEW（不破坏退回链路）
+- [x] dev_worker 把 branch_pushed 状态持久化到 DB
+- [x] 单测：7 项 test_pr_service.py 全绿（happy + 422 dup + branch missing + 500 + no_token + default_branch）；总 85 单测 + 21 integration 全绿
 
 #### 1.5e — Webhook 接收 + PRTracker + 看板
 

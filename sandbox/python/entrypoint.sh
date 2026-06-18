@@ -67,4 +67,22 @@ git diff "${BASE_SHA}..HEAD" > /workspace/.agent_diff.patch 2>/dev/null || true
 DIFF_BYTES=$(wc -c < /workspace/.agent_diff.patch 2>/dev/null || echo 0)
 echo "=== SYSTEM: diff captured (${DIFF_BYTES} bytes) ==="
 
+# 1.5d: 把分支推到 fork 供 PR 创建（best-effort）
+# - 只在有新 commit 时推（HEAD != BASE_SHA）
+# - 失败不影响 exit code；review_worker 会读 .agent_push.* 决定 PR 路径
+if [ "$(git rev-parse HEAD)" != "${BASE_SHA}" ]; then
+  echo "=== SYSTEM: pushing branch ${BRANCH_NAME} ==="
+  if git push origin "${BRANCH_NAME}" 2> /workspace/.agent_push.err; then
+    echo "ok" > /workspace/.agent_push.ok
+    echo "=== SYSTEM: push ok ==="
+  else
+    echo "fail" > /workspace/.agent_push.fail
+    echo "=== SYSTEM: push FAILED (see .agent_push.err) ==="
+    head -c 500 /workspace/.agent_push.err || true
+  fi
+else
+  echo "=== SYSTEM: no commits to push (HEAD == BASE_SHA) ==="
+  echo "no_commits" > /workspace/.agent_push.fail
+fi
+
 exit $EXIT_CODE

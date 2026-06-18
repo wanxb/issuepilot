@@ -46,6 +46,8 @@ from app.models.enums import (
     AgentBAttribution,
     AgentKind,
     IssueStatus,
+    PROutcomeEventType,
+    PullRequestStatus,
     RejectionCategory,
     RejectionDimension,
     RejectionSeverity,
@@ -54,6 +56,8 @@ from app.models.enums import (
     ReviewVerdict,
 )
 from app.models.issue import Issue
+from app.models.pr_outcome import PROutcome
+from app.models.pull_request import PullRequest
 from app.models.rejection_reason import RejectionReason
 from app.models.repo_profile import RepoProfile
 from app.models.review_task import ReviewTask
@@ -61,6 +65,13 @@ from app.services.issue_service import (
     InvalidTransitionError,
     IssueNotFoundError,
     IssueService,
+)
+from app.services.pr_service import (
+    BranchNotPushedError,
+    DuplicatePRError,
+    NoDevTokenError,
+    PRCreationError,
+    PRService,
 )
 from app.workers.celery_app import celery_app
 
@@ -219,7 +230,15 @@ async def _review_dev_task_async(
             )
 
             if output.verdict == "APPROVED":
-                # 状态保持 IN_REVIEW，1.5d 的 PR 创建链路接力
+                # 收集 PR 创建所需的上下文，session 关闭后调外部 API
+                pr_ctx = {
+                    "base_repo": issue.repository.full_name,
+                    "head_repo": dev_task.forked_repo or issue.repository.full_name,
+                    "head_branch": dev_task.branch_name or "",
+                    "branch_pushed": dev_task.branch_pushed,
+                    "pr_title": output.pr_title or "",
+                    "pr_body": output.pr_body or "",
+                }
                 log.info(
                     "review_worker.approved",
                     issue_id=str(issue_id),
@@ -227,6 +246,7 @@ async def _review_dev_task_async(
                     overall_score=output.overall_score,
                 )
             else:
+                pr_ctx = None
                 # REJECTED → 写 rejection_reasons + 转 REVIEW_REJECTED
                 _add_rejection_inline(
                     session=s,
@@ -239,18 +259,29 @@ async def _review_dev_task_async(
                 except InvalidTransitionError as e:
                     log.error("review_worker.transition_failed", error=str(e))
 
+        # ---- Phase 5: APPROVED 时创建 PR（DB session 外，避免持锁等 GitHub）----
+        pr_outcome: dict[str, object] = {}
+        if pr_ctx is not None:
+            pr_outcome = await _create_pr_and_persist(
+                issue_id=issue_id,
+                review_task_id=review_task_id,
+                ctx=pr_ctx,
+            )
+
         log.info(
             "review_worker.done",
             issue_id=str(issue_id),
             review_task_id=str(review_task_id),
             verdict=output.verdict,
             cost=sum(a.cost_usd for a in llm_resp.all_attempts),
+            **pr_outcome,
         )
         return {
             "verdict": output.verdict,
             "overall_score": output.overall_score,
             "review_task_id": str(review_task_id),
             "is_fallback": llm_resp.is_fallback,
+            **pr_outcome,
         }
 
     except (ToolNotCalledError, SchemaValidationError) as e:
@@ -431,6 +462,144 @@ async def _write_rejection(
                 await svc.mark_review_rejected(issue)
             except InvalidTransitionError as e:
                 log.error("review_worker.transition_failed", error=str(e))
+
+
+async def _create_pr_and_persist(
+    *,
+    issue_id: uuid.UUID,
+    review_task_id: uuid.UUID | None,
+    ctx: dict,
+) -> dict[str, object]:
+    """APPROVED 后的 PR 创建链路：
+
+    - 校验 head_repo != base_repo（必须有 fork）
+    - 校验 branch_pushed 不为 False
+    - 调 PRService 创建 PR
+    - 写 pull_requests + pr_outcomes(submitted)
+    - 转 Issue: IN_REVIEW → PR_SUBMITTED
+
+    任何失败（无 dev_token / 未 push / API 422）：日志记录，Issue 保持 IN_REVIEW。
+    """
+    base_repo: str = ctx["base_repo"]
+    head_repo: str = ctx["head_repo"]
+    head_branch: str = ctx["head_branch"]
+    branch_pushed = ctx["branch_pushed"]
+    pr_title: str = ctx["pr_title"]
+    pr_body: str = ctx["pr_body"]
+
+    if not head_branch:
+        log.warning("review_worker.pr_skip_no_branch", issue_id=str(issue_id))
+        return {"pr_skipped": "no_branch"}
+
+    if head_repo == base_repo:
+        log.warning(
+            "review_worker.pr_skip_no_fork",
+            issue_id=str(issue_id),
+            head_repo=head_repo,
+        )
+        return {"pr_skipped": "no_fork"}
+
+    if branch_pushed is False:
+        log.warning(
+            "review_worker.pr_skip_not_pushed",
+            issue_id=str(issue_id),
+        )
+        return {"pr_skipped": "not_pushed"}
+
+    # 调 GitHub API
+    svc = PRService.from_settings()
+    base_owner, _ = base_repo.split("/", 1)
+    base_name = base_repo.split("/", 1)[1]
+    try:
+        base_branch = await svc.get_default_branch(base_owner, base_name)
+        created = await svc.create_pr(
+            base_repo=base_repo,
+            base_branch=base_branch,
+            head_repo=head_repo,
+            head_branch=head_branch,
+            title=pr_title,
+            body=pr_body,
+        )
+    except NoDevTokenError as e:
+        log.warning("review_worker.pr_no_dev_token", issue_id=str(issue_id), error=str(e))
+        return {"pr_skipped": "no_dev_token"}
+    except BranchNotPushedError as e:
+        log.error("review_worker.pr_branch_missing", issue_id=str(issue_id), error=str(e))
+        return {"pr_skipped": "branch_missing"}
+    except DuplicatePRError as e:
+        log.warning(
+            "review_worker.pr_duplicate",
+            issue_id=str(issue_id),
+            error=str(e),
+            existing_url=e.existing_url,
+        )
+        return {"pr_skipped": "duplicate", "existing_url": e.existing_url}
+    except PRCreationError as e:
+        log.error(
+            "review_worker.pr_creation_failed",
+            issue_id=str(issue_id),
+            status_code=e.status_code,
+            error=str(e),
+        )
+        return {"pr_skipped": "creation_failed", "status_code": e.status_code}
+
+    # 写 DB
+    async with session_scope() as s:
+        issvc = IssueService(s)
+        try:
+            issue = await issvc.get(issue_id)
+        except IssueNotFoundError:
+            log.error("review_worker.issue_missing_at_pr_persist", issue_id=str(issue_id))
+            return {"pr_skipped": "issue_missing"}
+
+        pr_row = PullRequest(
+            issue_id=issue.id,
+            review_task_id=review_task_id,
+            github_pr_number=created.number,
+            github_pr_url=created.url,
+            title=created.title,
+            body=created.body,
+            head_repo=head_repo,
+            head_branch=head_branch,
+            base_repo=base_repo,
+            base_branch=created.base_branch,
+            status=PullRequestStatus.OPEN,
+            submitted_at=created.submitted_at,
+        )
+        s.add(pr_row)
+        await s.flush()
+
+        outcome = PROutcome(
+            pr_id=pr_row.id,
+            event_type=PROutcomeEventType.SUBMITTED,
+            actor=head_repo.split("/", 1)[0],
+            payload={
+                "pr_url": created.url,
+                "title": created.title,
+                "base_branch": created.base_branch,
+                "head_branch": head_branch,
+            },
+            occurred_at=created.submitted_at,
+        )
+        s.add(outcome)
+
+        try:
+            await issvc.mark_pr_submitted(issue)
+        except InvalidTransitionError as e:
+            log.error("review_worker.pr_transition_failed", error=str(e))
+            return {
+                "pr_url": created.url,
+                "pr_number": created.number,
+                "transition_failed": True,
+            }
+
+    log.info(
+        "review_worker.pr_submitted",
+        issue_id=str(issue_id),
+        pr_url=created.url,
+        pr_number=created.number,
+    )
+    return {"pr_url": created.url, "pr_number": created.number}
 
 
 async def _mark_review_failed(
