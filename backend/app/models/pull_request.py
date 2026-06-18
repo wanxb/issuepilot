@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     DateTime,
-    Enum,
     ForeignKey,
     Index,
     Integer,
@@ -25,6 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 from app.models._mixins import TimestampMixin, UUIDPKMixin
+from app.models._pg_enum import pg_enum
 from app.models.enums import PRFinalOutcome, PullRequestStatus
 
 if TYPE_CHECKING:
@@ -60,12 +60,12 @@ class PullRequest(Base, UUIDPKMixin, TimestampMixin):
 
     # 状态
     status: Mapped[PullRequestStatus] = mapped_column(
-        Enum(PullRequestStatus, name="pull_request_status", native_enum=True),
+        pg_enum(PullRequestStatus, "pull_request_status"),
         nullable=False,
         default=PullRequestStatus.OPEN,
     )
     final_outcome: Mapped[PRFinalOutcome | None] = mapped_column(
-        Enum(PRFinalOutcome, name="pr_final_outcome", native_enum=True),
+        pg_enum(PRFinalOutcome, "pr_final_outcome"),
         nullable=True,
     )
     close_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

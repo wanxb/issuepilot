@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Enum,
     Float,
     ForeignKey,
     Index,
@@ -29,6 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 from app.models._mixins import TimestampMixin, UUIDPKMixin
+from app.models._pg_enum import pg_enum
 from app.models.enums import ReviewTaskStatus, ReviewVerdict
 
 if TYPE_CHECKING:
@@ -52,14 +52,14 @@ class ReviewTask(Base, UUIDPKMixin, TimestampMixin):
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     status: Mapped[ReviewTaskStatus] = mapped_column(
-        Enum(ReviewTaskStatus, name="review_task_status", native_enum=True),
+        pg_enum(ReviewTaskStatus, "review_task_status"),
         nullable=False,
         default=ReviewTaskStatus.PENDING,
     )
 
     # Agent C 输出（COMPLETED 时填充）
     verdict: Mapped[ReviewVerdict | None] = mapped_column(
-        Enum(ReviewVerdict, name="review_verdict", native_enum=True),
+        pg_enum(ReviewVerdict, "review_verdict"),
         nullable=True,
     )
     overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)

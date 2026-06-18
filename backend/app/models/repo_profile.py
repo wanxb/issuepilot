@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Enum,
     Float,
     ForeignKey,
     Index,
@@ -28,6 +27,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 from app.models._mixins import TimestampMixin, UUIDPKMixin
+from app.models._pg_enum import pg_enum
 from app.models.enums import ProfileQuality
 
 if TYPE_CHECKING:
@@ -60,7 +60,7 @@ class RepoProfile(Base, UUIDPKMixin, TimestampMixin):
     )
 
     profile_quality: Mapped[ProfileQuality] = mapped_column(
-        Enum(ProfileQuality, name="profile_quality", native_enum=True),
+        pg_enum(ProfileQuality, "profile_quality"),
         nullable=False,
         default=ProfileQuality.MEDIUM,
     )

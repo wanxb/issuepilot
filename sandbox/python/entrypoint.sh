@@ -54,6 +54,7 @@ echo "${AGENT_PROMPT_B64}" | base64 -d | claude -p - \
   --model "${CLAUDE_MODEL:-claude-sonnet-4-6}" \
   --max-turns "${MAX_TURNS:-25}" \
   --output-format stream-json \
+  --verbose \
   --allowedTools "Read,Write,Edit,Bash,Glob,Grep,mcp__issuepilot-agent-b-terminator__report_completion,mcp__issuepilot-agent-b-terminator__report_failure" \
   --permission-mode acceptEdits \
   --mcp-config /workspace/.mcp.json

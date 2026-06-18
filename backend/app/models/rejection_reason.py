@@ -12,12 +12,13 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Enum, ForeignKey, Index, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 from app.models._mixins import TimestampMixin, UUIDPKMixin
+from app.models._pg_enum import pg_enum
 from app.models.enums import (
     AgentBAttribution,
     RejectionCategory,
@@ -52,23 +53,23 @@ class RejectionReason(Base, UUIDPKMixin, TimestampMixin):
     )
 
     source: Mapped[RejectionSource] = mapped_column(
-        Enum(RejectionSource, name="rejection_source", native_enum=True),
+        pg_enum(RejectionSource, "rejection_source"),
         nullable=False,
     )
     category: Mapped[RejectionCategory] = mapped_column(
-        Enum(RejectionCategory, name="rejection_category", native_enum=True),
+        pg_enum(RejectionCategory, "rejection_category"),
         nullable=False,
     )
     severity: Mapped[RejectionSeverity] = mapped_column(
-        Enum(RejectionSeverity, name="rejection_severity", native_enum=True),
+        pg_enum(RejectionSeverity, "rejection_severity"),
         nullable=False,
     )
     dimension: Mapped[RejectionDimension | None] = mapped_column(
-        Enum(RejectionDimension, name="rejection_dimension", native_enum=True),
+        pg_enum(RejectionDimension, "rejection_dimension"),
         nullable=True,
     )
     agent_b_attribution: Mapped[AgentBAttribution | None] = mapped_column(
-        Enum(AgentBAttribution, name="agent_b_attribution", native_enum=True),
+        pg_enum(AgentBAttribution, "agent_b_attribution"),
         nullable=True,
     )
 

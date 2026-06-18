@@ -75,6 +75,9 @@ services:
       ENV: dev
       # 让 docker SDK 通过 unix socket 连接宿主 daemon
       DOCKER_HOST: unix:///var/run/docker.sock
+      # Celery 每个 task asyncio.run() 起新 loop，复用 connection 池会炸；
+      # NullPool 让每次 session_scope 都新建连接，避免跨 loop 复用
+      DB_USE_NULL_POOL: "1"
     volumes:
       - ./backend:/app
       - backend_venv:/opt/venv

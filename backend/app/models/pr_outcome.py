@@ -9,12 +9,13 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String
+from sqlalchemy import DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 from app.models._mixins import TimestampMixin, UUIDPKMixin
+from app.models._pg_enum import pg_enum
 from app.models.enums import PROutcomeEventType
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ class PROutcome(Base, UUIDPKMixin, TimestampMixin):
         nullable=False,
     )
     event_type: Mapped[PROutcomeEventType] = mapped_column(
-        Enum(PROutcomeEventType, name="pr_outcome_event_type", native_enum=True),
+        pg_enum(PROutcomeEventType, "pr_outcome_event_type"),
         nullable=False,
     )
     actor: Mapped[str | None] = mapped_column(String(100), nullable=True)
