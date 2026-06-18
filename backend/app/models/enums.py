@@ -103,3 +103,117 @@ class DevLogStep(str, enum.Enum):
     TEST = "test"
     COMMIT = "commit"
     SYSTEM = "system"             # 系统：超时、强制终止、stuck 检测
+
+
+# ---------------------------------------------------------------------------
+# 1.5a — Agent C / Agent D / PR 链路新增 enum
+# ---------------------------------------------------------------------------
+
+
+class ReviewTaskStatus(str, enum.Enum):
+    """Agent C 单次评审尝试的状态。"""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"       # Agent C 给出 verdict（APPROVED 或 REJECTED）
+    FAILED = "failed"             # tool 未调 / schema 失败 / 系统异常
+
+
+class ReviewVerdict(str, enum.Enum):
+    """Agent C 评审结论（AGENT_DESIGN.md §Agent C）。"""
+
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class PullRequestStatus(str, enum.Enum):
+    """`pull_requests.status` —— PR 当前生命周期状态。"""
+
+    OPEN = "OPEN"
+    MERGED = "MERGED"
+    CLOSED = "CLOSED"
+
+
+class PRFinalOutcome(str, enum.Enum):
+    """`pull_requests.final_outcome` —— 学习闭环核心字段。
+
+    详见 DATA_MODEL.md §5.1。仅在 PR 关闭/合并后写入。
+    """
+
+    MERGED_CLEAN = "MERGED_CLEAN"
+    MERGED_WITH_CHANGES = "MERGED_WITH_CHANGES"
+    CLOSED_BY_MAINTAINER = "CLOSED_BY_MAINTAINER"
+    CLOSED_BY_US = "CLOSED_BY_US"
+    REVERTED = "REVERTED"
+    STALE = "STALE"
+
+
+class PROutcomeEventType(str, enum.Enum):
+    """`pr_outcomes.event_type` —— PR 生命周期事件类型。
+
+    详见 DATA_MODEL.md §5.3。事件日志而非状态机。
+    """
+
+    SUBMITTED = "submitted"
+    REVIEW_RECEIVED = "review_received"
+    COMMENT_RECEIVED = "comment_received"
+    PUSHED_BY_US = "pushed_by_us"
+    PUSHED_BY_MAINTAINER = "pushed_by_maintainer"
+    MERGED = "merged"
+    CLOSED = "closed"
+    REVERTED_DETECTED = "reverted_detected"
+
+
+class RejectionSource(str, enum.Enum):
+    """`rejection_reasons.source` —— 退回信号来源。"""
+
+    AGENT_C = "agent_c"
+    MAINTAINER_REVIEW = "maintainer_review"
+    MAINTAINER_CLOSE = "maintainer_close"
+
+
+class RejectionCategory(str, enum.Enum):
+    """`rejection_reasons.category` —— 学习闭环聚类维度。"""
+
+    WRONG_ROOT_CAUSE = "wrong_root_cause"
+    INCOMPLETE_FIX = "incomplete_fix"
+    BROKE_OTHER_TESTS = "broke_other_tests"
+    STYLE_MISMATCH = "style_mismatch"
+    SECURITY_CONCERN = "security_concern"
+    SCOPE_CREEP = "scope_creep"
+    NEEDS_DESIGN_DISCUSSION = "needs_design_discussion"
+    DUPLICATE = "duplicate"
+    OUT_OF_SCOPE = "out_of_scope"
+    OTHER = "other"
+
+
+class RejectionSeverity(str, enum.Enum):
+    BLOCKER = "blocker"
+    MAJOR = "major"
+    MINOR = "minor"
+
+
+class RejectionDimension(str, enum.Enum):
+    """对应 Agent C 评审维度；maintainer source 时由 RejectionClassifier 推断。"""
+
+    CORRECTNESS = "correctness"
+    TEST_COVERAGE = "test_coverage"
+    CODE_STYLE = "code_style"
+    SECURITY = "security"
+    PR_DESCRIPTION = "pr_description"
+
+
+class AgentBAttribution(str, enum.Enum):
+    """是否归因 Agent B 的失误。学习闭环关键信号。"""
+
+    YES = "yes"
+    NO = "no"
+    UNCLEAR = "unclear"
+
+
+class ProfileQuality(str, enum.Enum):
+    """`repo_profiles.profile_quality` —— Agent D 输出的画像质量自评。"""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"

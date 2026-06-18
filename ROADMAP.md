@@ -76,6 +76,16 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 ### 里程碑 1.5 — Agent C + Agent D（RepoOnboarding）+ PR 提交 + PR 链路数据采集
 
+> 拆为 5 个子里程碑串行推进：1.5a 数据基础 → 1.5b Agent C → 1.5c Agent D → 1.5d PR 创建 → 1.5e Webhook。
+
+#### 1.5a — 数据基础（5 张表 + 11 个 enum）✅ 已完成 2026-06-18
+
+- [x] enums.py 扩展：ReviewVerdict / ReviewTaskStatus / PullRequestStatus / PRFinalOutcome / PROutcomeEventType / RejectionSource / RejectionCategory / RejectionSeverity / RejectionDimension / AgentBAttribution / ProfileQuality
+- [x] ORM 模型：`repo_profiles`、`review_tasks`、`pull_requests`、`pr_outcomes`、`rejection_reasons`
+- [x] Alembic migration `c2d6e2f6a2b2`（upgrade/downgrade 双向验证通过）
+
+#### 1.5b~e（待启动）
+
 - [ ] Agent C Harness（SingleShotLoop）
 - [ ] Agent C Prompt v1.0（system prompt 注入 `repo_profile.code_style_notes`，`code_style` 评分直接对比 profile）
 - [ ] review_worker（Celery）

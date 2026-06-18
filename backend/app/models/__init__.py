@@ -9,7 +9,12 @@ from app.models.dev_task import DevTask
 from app.models.evaluation import Evaluation
 from app.models.issue import Issue
 from app.models.llm_call_log import LLMCallLog
+from app.models.pr_outcome import PROutcome
+from app.models.pull_request import PullRequest
+from app.models.rejection_reason import RejectionReason
+from app.models.repo_profile import RepoProfile
 from app.models.repository import Repository
+from app.models.review_task import ReviewTask
 
 __all__ = [
     "CrawlJob",
@@ -18,5 +23,10 @@ __all__ = [
     "Evaluation",
     "Issue",
     "LLMCallLog",
+    "PROutcome",
+    "PullRequest",
+    "RejectionReason",
+    "RepoProfile",
     "Repository",
+    "ReviewTask",
 ]
