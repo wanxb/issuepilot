@@ -19,13 +19,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import (
+    AgentBAttribution,
     IssueStatus,
     PROutcomeEventType,
     PRFinalOutcome,
     PullRequestStatus,
+    RejectionCategory,
+    RejectionSeverity,
+    RejectionSource,
 )
 from app.models.pr_outcome import PROutcome
 from app.models.pull_request import PullRequest
+from app.models.rejection_reason import RejectionReason
 from app.services.issue_service import (
     InvalidTransitionError,
     IssueService,
@@ -115,6 +120,13 @@ class PRTracker:
             pr.closed_at = occurred_at
             pr.closer_login = actor
             pr.final_outcome = PRFinalOutcome.CLOSED_BY_MAINTAINER
+            # 2.3: maintainer 关 PR（非 merge）→ 强信号，必写一条
+            self._add_unclassified_rejection(
+                pr=pr,
+                source=RejectionSource.MAINTAINER_CLOSE,
+                raw_text=None,
+                detail=f"PR closed by {actor or 'maintainer'} without merge",
+            )
 
         # Issue 状态转换
         await self._s.refresh(pr, ["issue"])
@@ -151,6 +163,14 @@ class PRTracker:
             payload={"state": state, "body": (body or "")[:5000]},
             occurred_at=occurred_at,
         )
+        # 2.3: 非 approved review → 写 rejection_reasons 占位（classifier 二次分类）
+        if state != "approved" and (body or "").strip():
+            self._add_unclassified_rejection(
+                pr=pr,
+                source=RejectionSource.MAINTAINER_REVIEW,
+                raw_text=body,
+                detail=f"[review state={state}] {body[:1500]}",
+            )
 
     async def on_comment_received(
         self,
@@ -167,6 +187,46 @@ class PRTracker:
             payload={"body": (body or "")[:5000]},
             occurred_at=occurred_at,
         )
+        # 2.3: PR comment → 写 rejection_reasons 占位（classifier 决定语义）
+        # 注：自己 bot 留的评论也会被写入；filter 留给 classifier。
+        if (body or "").strip():
+            self._add_unclassified_rejection(
+                pr=pr,
+                source=RejectionSource.MAINTAINER_REVIEW,
+                raw_text=body,
+                detail=f"[pr_comment] {body[:1500]}",
+            )
+
+
+    # ---- rejection_reasons 占位写入（classified_by=None；2.3 RejectionClassifier 二次分类）----
+
+    def _add_unclassified_rejection(
+        self,
+        *,
+        pr: PullRequest,
+        source: RejectionSource,
+        raw_text: str | None,
+        detail: str,
+    ) -> None:
+        """写一条 classifier 未跑过的占位记录。
+
+        category/severity/dimension 用保守默认；分类器跑完会 UPDATE 这一行。
+        attribution=UNCLEAR 直到分类器判断责任在 Agent B 还是 maintainer。
+        """
+        reason = RejectionReason(
+            issue_id=pr.issue_id,
+            pr_id=pr.id,
+            review_task_id=None,        # maintainer 路径不对应特定 review_task
+            source=source,
+            category=RejectionCategory.OTHER,
+            severity=RejectionSeverity.MINOR,
+            dimension=None,
+            agent_b_attribution=AgentBAttribution.UNCLEAR,
+            detail=detail[:2000],
+            raw_text=raw_text,
+            classified_by=None,         # ← 待 RejectionClassifier 处理的信号
+        )
+        self._s.add(reason)
 
 
 # ---------------------------------------------------------------------------

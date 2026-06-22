@@ -185,7 +185,7 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] **Agent C → Agent B 退回循环**（2026-06-22，最多 `max_review_retry=3` 次，超限 ARCHIVED）：`review_worker` REJECTED 路径分叉为 retry / archive；retry 时建新 `dev_task(attempt_number+1, review_context=...)` + `IssueService.re_queue_dev` + 入 `dev_queue`；超限时 `IssueService.mark_archived`。`build_review_context()` 把 5 维评分 + 失败维度评语 + rejection_reason 包成结构化 text 注入 Agent B prompt（已存在的 `<repo_profile>` + review_context 字段）。`_ALLOWED_FROM[ARCHIVED]` 新增 `REVIEW_REJECTED` 出口；15 项 `test_review_retry.py` 覆盖边界 + 模板 + 状态机白名单
 - [ ] **task 级 fallback**：Agent B 整 task 失败 / Agent C 退回 ≥2 次时，下次 dev 切换 fallback provider（混合策略剩余部分）
 - [ ] **RejectionClassifier Agent**（Haiku 4.5）：把 maintainer review/close 自由文本分类为 category/severity/dimension/agent_b_attribution
-- [ ] Webhook：pull_request_review + issue_comment 写入 `rejection_reasons` (source=maintainer_review/maintainer_close)
+- [x] **Webhook → `rejection_reasons` 占位入库**（2026-06-22）：PRTracker.on_review_received（changes_requested / commented + 非空 body）+ on_comment_received（非空 body）+ on_pr_closed(unmerged) 写一行 RejectionReason(source=MAINTAINER_REVIEW / MAINTAINER_CLOSE)，category=OTHER / severity=MINOR / attribution=UNCLEAR / classified_by=null 作占位，等 RejectionClassifier 二次分类。approved review 不写。6 项 test_pr_tracker_rejection.py + replay 4 事件端到端 3 行入库验证
 - [ ] Revert 巡检：APScheduler 任务每日扫描 merged PR 是否被 revert，写 `pr_outcomes` (event_type=reverted_detected) 和 `pull_requests.final_outcome=REVERTED`
 - [ ] STALE 自动归档（30 天无动作）
 - [ ] PR 关闭后人工审核流程（重新开发 / 归档）
