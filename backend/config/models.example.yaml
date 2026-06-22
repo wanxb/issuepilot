@@ -137,11 +137,23 @@ agents:
       base_url: https://api.deepseek.com/anthropic
 
 # ============================================================================
-# 备选示例：切换到 DeepSeek（OpenAI 兼容接口）
+# 2.5 备选示例：OpenAI 兼容接口（OpenAI / DeepSeek / Moonshot / 智谱 / 通义）
 # ----------------------------------------------------------------------------
+# OpenAI 原生 Chat Completions（gpt-4o / gpt-5 等）：
 # agents:
 #   agent_a:
-#     provider: deepseek
+#     provider: openai
+#     model: gpt-4o
+#     api_key_env: OPENAI_API_KEY
+#     # base_url 留空 → 默认 https://api.openai.com/v1
+#     max_tokens: 4096
+#     temperature: 0.3
+#
+# DeepSeek 走 OpenAI 兼容接口（与上面 Anthropic 兼容接口可同时配置不同 agent）：
+# agents:
+#   agent_a:
+#     provider: deepseek_openai          # 用 OpenAIClient + DeepSeek base_url
+#     provider_label: deepseek           # llm_call_logs 写 deepseek 便于统计
 #     model: deepseek-chat
 #     api_key_env: DEEPSEEK_API_KEY
 #     base_url: https://api.deepseek.com/v1

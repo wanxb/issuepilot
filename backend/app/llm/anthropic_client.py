@@ -27,7 +27,7 @@ from app.models.enums import AgentKind
 
 
 # 简化价目表（USD per 1M tokens），用于无 cost 字段时估算
-# 数据基于公开价格，仅用于内部成本观测
+# 数据基于公开价格，仅用于内部成本观测；价格变动直接改这里即可
 _PRICING_PER_MILLION: dict[str, tuple[float, float]] = {
     # model_substring : (input_per_M, output_per_M)
     "claude-opus-4-7": (15.0, 75.0),
@@ -35,10 +35,17 @@ _PRICING_PER_MILLION: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
+    # 2.5: DeepSeek 通过 Anthropic 兼容接口走同一 client；价格 USD per 1M
+    # 来自 deepseek.com 公开定价（DeepSeek-V4-Pro non-cache hit input/output）
+    "DeepSeek-V4-Pro": (0.27, 1.10),
+    "DeepSeek-V3": (0.27, 1.10),
+    "deepseek-chat": (0.27, 1.10),     # OpenAI 兼容接口的模型名
+    "deepseek-reasoner": (0.55, 2.19),
 }
 
 
 def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """子串匹配。命中即返回，不命中返 0.0 + 记 warn 给运维。"""
     for key, (in_price, out_price) in _PRICING_PER_MILLION.items():
         if key in model:
             return (input_tokens * in_price + output_tokens * out_price) / 1_000_000

@@ -210,12 +210,13 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [ ] **PR 失败复盘视图**：按 category × Agent B 归因 聚合，Top N 失败模式可点击下钻到原始 PR
 - [ ] 统计概览（各状态数量、今日新增、本周 fallback 触发率）
 
-### 里程碑 2.5 — 多厂商模型支持
+### 里程碑 2.5 — 多厂商模型支持 ✅ 已完成 2026-06-22
 
-- [ ] OpenAI Client 实现
-- [ ] DeepSeek Client 实现（OpenAI 兼容）
-- [ ] 模型配置文件热加载
-- [ ] 成本统计（token 用量 + 费用估算）
+- [x] **OpenAI Client 实现**：`app/llm/openai_client.py` 用 httpx（不引 openai SDK 避免大包）实现 Chat Completions + tools；翻译层把 Anthropic 的 `ToolDefinition` 转 OpenAI function schema，把 OpenAI `tool_calls` 反译为我们的 `type=tool_use` content blocks；finish_reason 映射；错误分类（408/429/5xx → retriable）
+- [x] **DeepSeek Client 实现（OpenAI 兼容）**：复用 OpenAIClient，factory 加 `deepseek_openai` provider；models.yaml 用 `provider: deepseek_openai` + `provider_label: deepseek`（让 llm_call_logs 写 `deepseek` 与 Anthropic-compat 路径合并统计）
+- [x] **模型配置文件热加载**：`POST /api/v1/admin/reload-models` 清 `_load_yaml.lru_cache` 后下一次 `build_client` 读新文件；返回 agent 列表确认
+- [x] **成本统计（token 用量 + 费用估算）**：DeepSeek 价目（V4-Pro / V3 / chat / reasoner）补入 `_PRICING_PER_MILLION`；历史 21 条 DeepSeek 日志 UPDATE 回填（$0.0383 total）；`GET /api/v1/admin/cost-stats?hours=N` 按 agent_kind × provider × model 聚合 + fallback / failure 计数；前端 `CostStatsPanel` 30s 轮询 + 24h/7d/30d 切换
+- [x] 16 项 test_openai_client.py（tool 翻译 + 响应反译 + finish_reason 映射 + factory dispatch）；总 unit suite 214 passed
 
 ---
 

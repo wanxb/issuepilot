@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.llm.anthropic_client import AnthropicClient
 from app.llm.base import LLMClient, RetryConfig
 from app.llm.fallback import FallbackLLMClient
+from app.llm.openai_client import OpenAIClient
 
 AgentName = Literal[
     "agent_a", "agent_b", "agent_c", "agent_d", "rejection_classifier",
@@ -84,32 +85,49 @@ def _env_or(key: str | None) -> str | None:
 
 
 def _build_primary(cfg: dict[str, Any]) -> LLMClient:
-    provider = cfg["provider"]
-    if provider in ("anthropic", "deepseek"):
-        return AnthropicClient(
-            model=cfg["model"],
-            provider_label=provider,
-            api_key=_env_or(cfg.get("api_key_env")),
-            base_url=_env_or(cfg.get("base_url_env")) or cfg.get("base_url"),
-            auth_token=_env_or(cfg.get("auth_token_env")),
-            is_fallback=False,
-        )
-    raise ModelsYamlError(f"unsupported provider {provider!r}")
+    return _build_client(cfg, is_fallback=False)
 
 
 def _build_fallback(cfg: dict[str, Any]) -> LLMClient | None:
     fb = cfg.get("fallback") or {}
     if not fb.get("enabled"):
         return None
-    provider = fb.get("provider", "deepseek")
-    return AnthropicClient(
-        model=fb["model"],
-        provider_label=provider,
-        api_key=_env_or(fb.get("api_key_env")),
-        base_url=_env_or(fb.get("base_url_env")) or fb.get("base_url"),
-        auth_token=_env_or(fb.get("auth_token_env")),
-        is_fallback=True,
-    )
+    return _build_client(fb, is_fallback=True)
+
+
+def _build_client(cfg: dict[str, Any], *, is_fallback: bool) -> LLMClient:
+    """统一构造（primary + fallback 同 schema）。
+
+    provider 取值：
+        - anthropic              Anthropic Messages API（用 anthropic SDK）
+        - deepseek               DeepSeek 走 Anthropic 兼容接口（用 anthropic SDK
+                                 + 自定义 base_url）—— 这是历史路径，验证可用
+        - openai                 OpenAI Chat Completions（用 httpx）
+        - deepseek_openai        DeepSeek 走 OpenAI 兼容接口（用 OpenAIClient
+                                 + DeepSeek base_url）
+        - 任何其他 OpenAI 兼容厂商（智谱/Moonshot/通义）填 provider=openai +
+          base_url 即可
+    """
+    provider = cfg.get("provider", "")
+    label = cfg.get("provider_label") or provider  # 区分 deepseek 走哪条路
+    if provider in ("anthropic", "deepseek"):
+        return AnthropicClient(
+            model=cfg["model"],
+            provider_label=label,
+            api_key=_env_or(cfg.get("api_key_env")),
+            base_url=_env_or(cfg.get("base_url_env")) or cfg.get("base_url"),
+            auth_token=_env_or(cfg.get("auth_token_env")),
+            is_fallback=is_fallback,
+        )
+    if provider in ("openai", "deepseek_openai"):
+        return OpenAIClient(
+            model=cfg["model"],
+            provider_label=label,
+            api_key=_env_or(cfg.get("api_key_env")),
+            base_url=_env_or(cfg.get("base_url_env")) or cfg.get("base_url"),
+            is_fallback=is_fallback,
+        )
+    raise ModelsYamlError(f"unsupported provider {provider!r}")
 
 
 def _build_retry(cfg: dict[str, Any]) -> RetryConfig:
