@@ -40,12 +40,14 @@ celery_app.conf.update(
         Queue("dev_queue"),
         Queue("review_queue"),
         Queue("profile_queue"),
+        Queue("classify_queue"),
     ),
     task_routes={
         "app.workers.analyze_worker.*": {"queue": "analyze_queue"},
         "app.workers.dev_worker.*": {"queue": "dev_queue"},
         "app.workers.review_worker.*": {"queue": "review_queue"},
         "app.workers.profile_worker.*": {"queue": "profile_queue"},
+        "app.workers.classify_worker.*": {"queue": "classify_queue"},
     },
     # 1.1 冒烟用：单独路由 ping 任务到 analyze_queue
     task_default_exchange="issuepilot",
@@ -61,6 +63,7 @@ def ping() -> str:
 # 显式 import 所有 worker 模块，让 @celery_app.task 装饰器在 import 时注册任务
 # （autodiscover_tasks 是为 package/tasks 约定准备的，本项目不用那个约定）
 from app.workers import analyze_worker  # noqa: E402, F401
+from app.workers import classify_worker  # noqa: E402, F401
 from app.workers import dev_worker      # noqa: E402, F401
 from app.workers import profile_worker  # noqa: E402, F401
 from app.workers import review_worker   # noqa: E402, F401

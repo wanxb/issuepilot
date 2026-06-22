@@ -92,7 +92,7 @@ services:
     command: >
       celery -A app.workers.celery_app worker
       --loglevel=info
-      --queues=analyze_queue,dev_queue,review_queue,profile_queue
+      --queues=analyze_queue,dev_queue,review_queue,profile_queue,classify_queue
       --concurrency=2
 
   frontend:

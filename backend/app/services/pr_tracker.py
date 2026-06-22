@@ -46,6 +46,9 @@ class PRNotTracked(Exception):
 class PRTracker:
     def __init__(self, session: AsyncSession) -> None:
         self._s = session
+        # 2.3: 本次会话写入的 rejection_reasons.id；commit 后由 webhook handler
+        # 批量 enqueue classify_worker。
+        self.pending_classify_ids: list[uuid.UUID] = []
 
     # ---- 查找 ----
 
@@ -121,7 +124,7 @@ class PRTracker:
             pr.closer_login = actor
             pr.final_outcome = PRFinalOutcome.CLOSED_BY_MAINTAINER
             # 2.3: maintainer 关 PR（非 merge）→ 强信号，必写一条
-            self._add_unclassified_rejection(
+            await self._add_unclassified_rejection(
                 pr=pr,
                 source=RejectionSource.MAINTAINER_CLOSE,
                 raw_text=None,
@@ -165,7 +168,7 @@ class PRTracker:
         )
         # 2.3: 非 approved review → 写 rejection_reasons 占位（classifier 二次分类）
         if state != "approved" and (body or "").strip():
-            self._add_unclassified_rejection(
+            await self._add_unclassified_rejection(
                 pr=pr,
                 source=RejectionSource.MAINTAINER_REVIEW,
                 raw_text=body,
@@ -190,7 +193,7 @@ class PRTracker:
         # 2.3: PR comment → 写 rejection_reasons 占位（classifier 决定语义）
         # 注：自己 bot 留的评论也会被写入；filter 留给 classifier。
         if (body or "").strip():
-            self._add_unclassified_rejection(
+            await self._add_unclassified_rejection(
                 pr=pr,
                 source=RejectionSource.MAINTAINER_REVIEW,
                 raw_text=body,
@@ -200,7 +203,7 @@ class PRTracker:
 
     # ---- rejection_reasons 占位写入（classified_by=None；2.3 RejectionClassifier 二次分类）----
 
-    def _add_unclassified_rejection(
+    async def _add_unclassified_rejection(
         self,
         *,
         pr: PullRequest,
@@ -212,6 +215,9 @@ class PRTracker:
 
         category/severity/dimension 用保守默认；分类器跑完会 UPDATE 这一行。
         attribution=UNCLEAR 直到分类器判断责任在 Agent B 还是 maintainer。
+
+        flush 一下让 Python 侧 default=uuid.uuid4 触发，把生成的 id 收集到
+        pending_classify_ids，webhook handler commit 后会批量入队。
         """
         reason = RejectionReason(
             issue_id=pr.issue_id,
@@ -227,6 +233,8 @@ class PRTracker:
             classified_by=None,         # ← 待 RejectionClassifier 处理的信号
         )
         self._s.add(reason)
+        await self._s.flush()           # 触发 default uuid4 → reason.id 就位
+        self.pending_classify_ids.append(reason.id)
 
 
 # ---------------------------------------------------------------------------

@@ -258,3 +258,65 @@ class AgentDOutput(BaseModel):
     merged_pr_examples: list[MergedPRExample] = Field(default_factory=list, max_length=3)
     profile_quality: Literal["high", "medium", "low"]
     quality_reason: str = Field(default="", max_length=200)
+
+
+# ---------------------------------------------------------------------------
+# RejectionClassifier（2.3）—— 把 maintainer review/close/comment 的自由文本
+# 分类为结构化退回原因。enum 值与 app.models.enums 中的同名枚举一一对齐。
+# ---------------------------------------------------------------------------
+
+
+CATEGORY_VALUES = (
+    "wrong_root_cause", "incomplete_fix", "broke_other_tests",
+    "style_mismatch", "security_concern", "scope_creep",
+    "needs_design_discussion", "duplicate", "out_of_scope", "other",
+)
+
+SEVERITY_VALUES = ("blocker", "major", "minor")
+
+DIMENSION_VALUES = (
+    "correctness", "test_coverage", "code_style", "security", "pr_description",
+)
+
+ATTRIBUTION_VALUES = ("yes", "no", "unclear")
+
+
+class RejectionClassifierInput(BaseModel):
+    """喂给分类器的上下文。raw_text 必填；其他字段可用于消歧。"""
+
+    # 必填
+    raw_text: str                            # maintainer 写的原话
+    source: Literal["maintainer_review", "maintainer_close"]
+
+    # 可选上下文（有则注入 prompt，无则跳过）
+    pr_title: str | None = None
+    pr_body_excerpt: str | None = None
+    diff_summary: str | None = None          # Agent B 自报的 diff_summary
+    files_changed: list[str] = Field(default_factory=list)
+    issue_title: str | None = None
+    agent_c_verdict: str | None = None       # "APPROVED" / "REJECTED"
+
+
+class RejectionClassifierOutput(BaseModel):
+    category: Literal[
+        "wrong_root_cause", "incomplete_fix", "broke_other_tests",
+        "style_mismatch", "security_concern", "scope_creep",
+        "needs_design_discussion", "duplicate", "out_of_scope", "other",
+    ]
+    severity: Literal["blocker", "major", "minor"]
+    dimension: Literal[
+        "correctness", "test_coverage", "code_style", "security", "pr_description",
+    ] | None = None
+    agent_b_attribution: Literal["yes", "no", "unclear"]
+    classified_reason: str = Field(
+        ..., min_length=1, max_length=500,
+        description="One-sentence rationale for the chosen labels (Chinese OK).",
+    )
+
+    @field_validator("classified_reason")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("classified_reason cannot be empty")
+        return v

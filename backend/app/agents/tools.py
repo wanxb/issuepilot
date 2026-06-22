@@ -166,6 +166,66 @@ SUBMIT_REVIEW_TOOL = ToolDefinition(
 # Agent D 终止工具
 # ---------------------------------------------------------------------------
 
+CLASSIFY_REJECTION_TOOL = ToolDefinition(
+    name="classify_rejection",
+    description=(
+        "Submit the classification of a maintainer's rejection / change-request / "
+        "close comment. You MUST call this tool exactly once. Choose the single "
+        "most specific category — do NOT default to 'other' unless the message "
+        "truly does not fit any category. Set agent_b_attribution to 'no' if the "
+        "rejection is about maintainer preferences or external policy "
+        "(not Agent B's fault)."
+    ),
+    input_schema={
+        "type": "object",
+        "required": ["category", "severity", "agent_b_attribution", "classified_reason"],
+        "properties": {
+            "category": {
+                "type": "string",
+                "enum": [
+                    "wrong_root_cause", "incomplete_fix", "broke_other_tests",
+                    "style_mismatch", "security_concern", "scope_creep",
+                    "needs_design_discussion", "duplicate", "out_of_scope",
+                    "other",
+                ],
+            },
+            "severity": {
+                "type": "string",
+                "enum": ["blocker", "major", "minor"],
+            },
+            "dimension": {
+                "type": ["string", "null"],
+                "enum": [
+                    "correctness", "test_coverage", "code_style",
+                    "security", "pr_description", None,
+                ],
+                "description": (
+                    "Which Agent C dimension would have caught this. Null only "
+                    "if none of the 5 dimensions applies (e.g., scope/duplicate)."
+                ),
+            },
+            "agent_b_attribution": {
+                "type": "string",
+                "enum": ["yes", "no", "unclear"],
+                "description": (
+                    "yes: Agent B's mistake (could prevent next time). "
+                    "no: maintainer preference / out of scope / duplicate / "
+                    "external policy. unclear: not enough info."
+                ),
+            },
+            "classified_reason": {
+                "type": "string",
+                "maxLength": 500,
+                "description": (
+                    "≤200 chars. One sentence rationale, Chinese OK. "
+                    "Quote the maintainer phrase that drove the decision."
+                ),
+            },
+        },
+    },
+)
+
+
 REPORT_PROFILE_TOOL = ToolDefinition(
     name="report_profile",
     description=(

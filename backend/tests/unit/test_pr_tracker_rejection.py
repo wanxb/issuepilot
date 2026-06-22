@@ -26,7 +26,7 @@ from app.services.pr_tracker import PRTracker
 
 
 class _FakeSession:
-    """只实现 PRTracker 调用到的两个方法。"""
+    """只实现 PRTracker 调用到的方法。flush 模拟 Python 侧 default=uuid.uuid4 触发。"""
 
     def __init__(self) -> None:
         self.added: list[Any] = []
@@ -35,7 +35,10 @@ class _FakeSession:
         self.added.append(obj)
 
     async def flush(self) -> None:
-        pass
+        # 模拟 SQLAlchemy flush 时 Python defaults 落地
+        for obj in self.added:
+            if hasattr(obj, "id") and obj.id is None:
+                obj.id = uuid.uuid4()
 
     async def refresh(self, obj: Any, attrs: list[str]) -> None:
         pass
@@ -125,3 +128,34 @@ class TestOnCommentReceived:
             occurred_at=datetime.now(timezone.utc),
         )
         assert _rejections(s) == []
+
+
+@pytest.mark.asyncio
+class TestPendingClassifyIds:
+    """pending_classify_ids 必须收集到非 None UUID，webhook handler 才能 send_task。"""
+
+    async def test_collects_ids_after_flush(self) -> None:
+        s = _FakeSession()
+        tracker = PRTracker(s)  # type: ignore[arg-type]
+        pr = _fake_pr()
+        await tracker.on_review_received(
+            pr, reviewer="x", state="changes_requested", body="bad",
+            occurred_at=datetime.now(timezone.utc),
+        )
+        await tracker.on_comment_received(
+            pr, commenter="y", body="hint",
+            occurred_at=datetime.now(timezone.utc),
+        )
+        assert len(tracker.pending_classify_ids) == 2
+        for rid in tracker.pending_classify_ids:
+            assert isinstance(rid, uuid.UUID)
+            assert str(rid) and str(rid) != "None"
+
+    async def test_approved_does_not_pollute_pending(self) -> None:
+        s = _FakeSession()
+        tracker = PRTracker(s)  # type: ignore[arg-type]
+        await tracker.on_review_received(
+            _fake_pr(), reviewer="x", state="approved", body="LGTM",
+            occurred_at=datetime.now(timezone.utc),
+        )
+        assert tracker.pending_classify_ids == []

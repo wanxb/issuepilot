@@ -126,11 +126,30 @@ async def github_webhook(
         return {"ok": True, "event": x_github_event, "action": action, "handled": False}
 
     await session.commit()
+
+    # 2.3: webhook 落地后入队待分类的 rejection_reasons（commit 后再发，
+    # 否则 worker 可能比 commit 还快读到尚未持久化的行）
+    if tracker.pending_classify_ids:
+        from app.workers.celery_app import celery_app
+
+        for rid in tracker.pending_classify_ids:
+            celery_app.send_task(
+                "app.workers.classify_worker.classify_rejection",
+                args=[str(rid)],
+                queue="classify_queue",
+            )
+        log.info(
+            "webhook.classify_enqueued",
+            count=len(tracker.pending_classify_ids),
+            delivery=x_github_delivery,
+        )
+
     return {
         "ok": True,
         "event": x_github_event,
         "action": action,
         **result,
+        "classify_enqueued": len(tracker.pending_classify_ids),
     }
 
 
