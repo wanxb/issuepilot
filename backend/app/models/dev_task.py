@@ -60,6 +60,11 @@ class DevTask(Base, UUIDPKMixin, TimestampMixin):
     base_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 1.5d: 沙箱内 git push 的结果（True 成功 / False 失败 / None 未尝试）
     branch_pushed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # 2.3: 任务级 fallback——重试 DevTask 时切到 models.yaml.agent_b.fallback
+    # 配置（DeepSeek 的 Anthropic 兼容端点）
+    use_fallback_provider: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
     failure_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     failure_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 

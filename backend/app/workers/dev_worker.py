@@ -207,14 +207,10 @@ async def _setup_phase(
         dev_token_val = (
             settings.github_dev_token.get_secret_value() if settings.github_dev_token else ""
         )
-        api_key_val = (
-            settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else ""
-        )
-        base_url_val = settings.anthropic_base_url or ""
-        auth_token_val = (
-            settings.anthropic_auth_token.get_secret_value()
-            if settings.anthropic_auth_token
-            else ""
+
+        # 2.3: 任务级 fallback —— retry 时切到 models.yaml.agent_b.fallback
+        llm_env, model_label = build_sandbox_llm_env(
+            settings, use_fallback=dev_task.use_fallback_provider,
         )
 
         env: dict[str, str] = {
@@ -223,16 +219,11 @@ async def _setup_phase(
             "GITHUB_TOKEN": token_val,
             "GITHUB_DEV_TOKEN": dev_token_val,
             "AGENT_PROMPT_B64": prompt_b64,
-            "CLAUDE_MODEL": "claude-sonnet-4-6",
+            "CLAUDE_MODEL": model_label,
             "MAX_TURNS": str(settings.agent_b_max_turns),
             "DISABLE_AUTOUPDATER": "1",
+            **llm_env,
         }
-        if api_key_val:
-            env["ANTHROPIC_API_KEY"] = api_key_val
-        if base_url_val:
-            env["ANTHROPIC_BASE_URL"] = base_url_val
-        if auth_token_val:
-            env["ANTHROPIC_AUTH_TOKEN"] = auth_token_val
 
         # 状态转换
         svc = IssueService(s)
@@ -597,6 +588,66 @@ def _get_timeout_minutes() -> int:
 
 
 # ---------------------------------------------------------------------------
+# 2.3: 任务级 fallback —— 沙箱内 Claude Code CLI provider 切换
+# ---------------------------------------------------------------------------
+
+
+def build_sandbox_llm_env(
+    settings: Any, *, use_fallback: bool,
+) -> tuple[dict[str, str], str]:
+    """返回 (env_dict, model_label)。
+
+    primary：用 Settings 里的 anthropic_* 配置；CLAUDE_MODEL 默认 sonnet-4-6
+    fallback：从 models.yaml.agents.agent_b.fallback 读 base_url / auth_token /
+              model，CLI 仅用 auth_token，不带 api_key。
+
+    fallback 配置缺失时 fallback 到 primary（log warning）；不让任务直接死。
+    """
+    if not use_fallback:
+        env: dict[str, str] = {}
+        if settings.anthropic_api_key:
+            env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key.get_secret_value()
+        if settings.anthropic_base_url:
+            env["ANTHROPIC_BASE_URL"] = settings.anthropic_base_url
+        if settings.anthropic_auth_token:
+            env["ANTHROPIC_AUTH_TOKEN"] = settings.anthropic_auth_token.get_secret_value()
+        return env, "claude-sonnet-4-6"
+
+    # use_fallback=True：从 models.yaml.agent_b.fallback 拉
+    from app.llm.factory import _load_yaml, _env_or
+
+    data = _load_yaml()
+    agent_b_cfg = (data.get("agents") or {}).get("agent_b") or {}
+    fb_cfg = agent_b_cfg.get("fallback") or {}
+    if not fb_cfg.get("enabled"):
+        log.warning(
+            "dev_worker.fallback_config_missing",
+            note="agent_b.fallback.enabled=false; falling back to primary env",
+        )
+        return build_sandbox_llm_env(settings, use_fallback=False)
+
+    base_url = _env_or(fb_cfg.get("base_url_env")) or fb_cfg.get("base_url") or ""
+    auth_token = _env_or(fb_cfg.get("auth_token_env")) or ""
+    model = fb_cfg.get("model") or "DeepSeek-V4-Pro"
+
+    if not auth_token or not base_url:
+        log.warning(
+            "dev_worker.fallback_credentials_missing",
+            base_url=bool(base_url), auth_token=bool(auth_token),
+        )
+        return build_sandbox_llm_env(settings, use_fallback=False)
+
+    return (
+        {
+            "ANTHROPIC_BASE_URL": base_url,
+            "ANTHROPIC_AUTH_TOKEN": auth_token,
+            # 不设 ANTHROPIC_API_KEY：CLI 看到 auth_token 时不需要 api_key
+        },
+        model,
+    )
+
+
+# ---------------------------------------------------------------------------
 # 2.3: Agent B 重试机制
 # ---------------------------------------------------------------------------
 
@@ -662,6 +713,8 @@ async def _enqueue_dev_retry_or_stop(
         review_context=build_failure_review_context(
             prev_dev_task, prev_attempt=attempt,
         ),
+        # 任务级 fallback：dev 整 task 失败 → 下次切到 DeepSeek
+        use_fallback_provider=True,
     )
     session.add(new_dev_task)
     await session.flush()
@@ -682,4 +735,5 @@ async def _enqueue_dev_retry_or_stop(
         "new_dev_task_id": new_dev_task.id,
         "new_attempt": new_dev_task.attempt_number,
         "prev_failure_reason": prev_dev_task.failure_reason,
+        "use_fallback_provider": True,
     }

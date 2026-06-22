@@ -483,11 +483,14 @@ async def _enqueue_retry_or_archive(
     review_context = build_review_context(
         output, attempt_number=review_task.attempt_number,
     )
+    # 任务级 fallback：Agent C 第 2 次起仍 REJECTED → 下次 dev 切 fallback
+    use_fallback = review_task.attempt_number >= 2
     new_dev_task = DevTask(
         issue_id=issue.id,
         attempt_number=(prev_dev_task.attempt_number or 1) + 1,
         status=DevTaskStatus.PENDING,
         review_context=review_context,
+        use_fallback_provider=use_fallback,
     )
     session.add(new_dev_task)
     await session.flush()
@@ -502,6 +505,7 @@ async def _enqueue_retry_or_archive(
         "action": "retry",
         "new_dev_task_id": new_dev_task.id,
         "new_attempt": new_dev_task.attempt_number,
+        "use_fallback_provider": use_fallback,
     }
 
 
