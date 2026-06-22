@@ -171,12 +171,16 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [ ] 语言自动检测（GitHub API languages 字段）
 - [ ] 共享依赖缓存 volume（npm/pip/go mod）
 
-### 里程碑 2.2 — 抓取配置管理
+### 里程碑 2.2 — 抓取配置管理 ✅ 已完成 2026-06-22
 
-- [ ] crawl_targets 表 + CLI 管理脚本
-- [ ] GitHub Trending 支持
-- [ ] APScheduler 定时任务（可配置 cron）
-- [ ] 抓取日志页（看板）
+- [x] **crawl_targets 表**：新表 `crawl_targets`（name / source / spec JSONB / cron / enabled / last_run_at / last_status / last_error）+ alembic migration `f6h0i6d0f6g6`
+- [x] **CLI 管理脚本**：`scripts/manage_crawl_targets.py` 5 子命令（list / add / enable / disable / delete / run-now）；docker-compose 加 `./scripts:/scripts:ro` 让容器内可用；脚本兼容 host 与容器布局
+- [x] **GitHub Trending source**：`app/services/crawl_sources.py` 解析 `https://github.com/trending/{lang}?since=daily|weekly|monthly` 拿 owner/repo 列表；支持 `github_trending` + `explicit_repos` 两种 source；spec schema 校验在 service 层
+- [x] **APScheduler 定时任务（可配置 cron）**：扩展 `app/scheduler.py`，启动后异步加载所有 enabled targets 注册 cron job（`crawl_target:<uuid>` 命名）；`POST /api/v1/admin/scheduler-reload` 热刷新（外部修改 DB 后调）；`scheduled_crawl_worker.run_target` Celery 任务在 worker 容器执行实际抓取，updates `last_run_at / last_status`
+- [x] **抓取日志页（看板）**：`GET /api/v1/crawl-jobs?limit=N` 返回最近 N 条；前端 `CrawlJobsLog` 组件 8s 轮询，按 trigger / status badge / 来源 / 入队数 / 复用数 / 耗时 / 时间列展示
+- [x] **修了一个真 bug**：`_upsert_issues` 在 commit 前就 send_task 到 analyze_queue 导致 analyze_worker 比 outer commit 更快读到 issue → `issue_missing` 失败。新增 `enqueue_now: bool` 参数 + `TargetCrawlOutcome.pending_analyze_ids` 让 scheduled_crawl_worker 在 commit 后批量入队（manual URL 路径保留原行为，单 issue 不易触发 race）
+- [x] **e2e 验证**：disable→enable→run-now → 11 trending Python 仓库 → 179 issue 入库 → 16 已被 Agent A 评估（DeepSeek fallback 全程接管，Anthropic 中转此时仍 503）；CLI list 查到 last_status=succeeded，attempted=11/ok=11/enqueued=179；前端抓取日志页正常显示
+- [x] 23 项单测（15 sources + 8 service）；总 unit suite 198 passed
 
 ### 里程碑 2.3 — 边界处理 + 完整兜底 + PR 学习数据延展 ✅ 已完成 2026-06-22
 

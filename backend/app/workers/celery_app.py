@@ -68,3 +68,4 @@ from app.workers import dev_worker      # noqa: E402, F401
 from app.workers import maintenance_worker  # noqa: E402, F401
 from app.workers import profile_worker  # noqa: E402, F401
 from app.workers import review_worker   # noqa: E402, F401
+from app.workers import scheduled_crawl_worker  # noqa: E402, F401

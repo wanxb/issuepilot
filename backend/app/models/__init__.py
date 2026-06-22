@@ -4,6 +4,7 @@
 新增模型时在这里 + alembic/env.py 各加一行 import。
 """
 from app.models.crawl_job import CrawlJob
+from app.models.crawl_target import CrawlTarget
 from app.models.dev_log import DevLog
 from app.models.dev_task import DevTask
 from app.models.evaluation import Evaluation
@@ -18,6 +19,7 @@ from app.models.review_task import ReviewTask
 
 __all__ = [
     "CrawlJob",
+    "CrawlTarget",
     "DevLog",
     "DevTask",
     "Evaluation",

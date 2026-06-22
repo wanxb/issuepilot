@@ -13,8 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+
 from app.db.database import get_session
 from app.github.client import GitHubClient
+from app.models.crawl_job import CrawlJob
 from app.schemas.crawl import ManualSubmitRequest, ManualSubmitResponse
 from app.services.crawler_service import (
     ConfirmationRequired,
@@ -114,3 +117,38 @@ async def submit_manual(
         needs_confirmation=outcome.needs_confirmation,
         open_count_total=outcome.open_count_total,
     )
+
+
+# ---------------------------------------------------------------------------
+# 2.2: GET /api/v1/crawl-jobs —— 抓取日志列表（看板用）
+# ---------------------------------------------------------------------------
+
+
+@router.get("")
+async def list_crawl_jobs(
+    limit: int = 50,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, list[dict]]:
+    """返回最近 N 条抓取记录，按 created_at desc 排序。"""
+    limit = max(1, min(limit, 200))
+    stmt = (
+        select(CrawlJob)
+        .order_by(CrawlJob.created_at.desc())
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return {
+        "items": [
+            {
+                "id": str(r.id),
+                "trigger": r.trigger.value,
+                "status": r.status.value,
+                "input_url": r.input_url,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "stats": r.stats or {},
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ],
+    }

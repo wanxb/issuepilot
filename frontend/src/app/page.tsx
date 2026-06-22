@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { CrawlJobsLog } from "@/components/dashboard/crawl-jobs-log";
 import { HealthPanel } from "@/components/dashboard/health-panel";
 import { IssuesList } from "@/components/dashboard/issues-list";
 import { UrlInputBar } from "@/components/dashboard/url-input-bar";
@@ -29,6 +30,11 @@ export default function HomePage() {
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <h2 className="mb-4 text-base font-semibold">Issues</h2>
         <IssuesList refreshKey={refreshKey} />
+      </section>
+
+      <section className="rounded-lg border bg-card p-6 shadow-sm">
+        <h2 className="mb-4 text-base font-semibold">抓取日志</h2>
+        <CrawlJobsLog />
       </section>
 
       <section className="rounded-lg border bg-card p-6 shadow-sm">

@@ -103,6 +103,21 @@ class ManualCrawlOutcome:
     open_count_total: int | None = None
 
 
+@dataclass(slots=True)
+class TargetCrawlOutcome:
+    """2.2: 一次 scheduled_crawl 的聚合结果（一个 target → 多 repo）。"""
+    job_id: uuid.UUID
+    target_id: uuid.UUID
+    repos_attempted: int = 0
+    repos_succeeded: int = 0
+    repos_failed: int = 0
+    issues_enqueued: int = 0
+    issues_reused: int = 0
+    failures: dict[str, str] = field(default_factory=dict)  # repo -> error
+    # 待 commit 后由 caller 入队的 issue 列表，避免 analyze_worker 比 commit 更快
+    pending_analyze_ids: list[uuid.UUID] = field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
@@ -170,6 +185,125 @@ class CrawlerService:
         }
         return outcome
 
+    # ------- 2.2 定时抓取入口 -------
+
+    async def from_target(
+        self,
+        *,
+        target_id: uuid.UUID,
+        target_name: str,
+        source: str,
+        spec: dict,
+        max_issues_per_repo: int = 20,
+    ) -> "TargetCrawlOutcome":
+        """按 crawl_target 的 source + spec 拉 repo 列表，逐 repo 抓 issues。
+
+        策略：
+            - 每个 target run = 1 个 crawl_job（trigger=CRON），stats 聚合
+              所有 repos 的指标
+            - 单 repo 抓取失败不中断整个 target（log + 记 failures dict）
+            - max_issues_per_repo 限制防止 trending 头部仓库刷爆 analyze_queue
+        """
+        from app.services.crawl_sources import fetch_repos
+
+        job = CrawlJob(
+            trigger=CrawlTrigger.CRON,
+            status=CrawlStatus.RUNNING,
+            input_url=None,
+            started_at=datetime.now(timezone.utc),
+            stats={
+                "target_id": str(target_id),
+                "target_name": target_name,
+                "source": source,
+                "spec": spec,
+            },
+        )
+        self._s.add(job)
+        await self._s.flush()
+
+        t0 = time.perf_counter()
+        outcome = TargetCrawlOutcome(job_id=job.id, target_id=target_id)
+
+        try:
+            repo_full_names = await fetch_repos(source, spec)
+        except Exception as e:
+            job.status = CrawlStatus.FAILED
+            job.finished_at = datetime.now(timezone.utc)
+            job.stats = {**(job.stats or {}), "error": str(e)[:300]}
+            log.error("crawler.target_fetch_failed",
+                      target_id=str(target_id), error=str(e))
+            raise
+
+        outcome.repos_attempted = len(repo_full_names)
+        for full_name in repo_full_names:
+            try:
+                owner, name = full_name.split("/", 1)
+            except ValueError:
+                outcome.failures[full_name] = "invalid_full_name"
+                continue
+            try:
+                gh_repo = await self._gh.get_repo(owner, name)
+            except (RepoNotFoundError, RepoForbiddenError) as e:
+                outcome.failures[full_name] = type(e).__name__
+                outcome.repos_failed += 1
+                continue
+            except RateLimitedError as e:
+                # 限流直接终止：不浪费 GitHub 配额，记录后让下次 cron 重来
+                outcome.failures[full_name] = (
+                    f"rate_limited(retry_after={e.retry_after_seconds})"
+                )
+                break
+
+            try:
+                repo = await self._upsert_repo(gh_repo)
+                gh_issues = await self._gh.list_open_issues(
+                    owner, name, max_count=max_issues_per_repo,
+                )
+                new_c, reused_c, _skipped, new_ids = await self._upsert_issues(
+                    repo, gh_issues,
+                    job_id=job.id, source=IssueSource.CRAWL,
+                    enqueue_now=False,            # 2.2: 延迟到 commit 后
+                )
+                outcome.issues_enqueued += new_c
+                outcome.issues_reused += reused_c
+                outcome.repos_succeeded += 1
+                outcome.pending_analyze_ids.extend(new_ids)
+            except Exception as e:
+                outcome.failures[full_name] = str(e)[:200]
+                outcome.repos_failed += 1
+                log.warning("crawler.target_repo_failed",
+                            repo=full_name, error=str(e))
+
+        elapsed = round(time.perf_counter() - t0, 2)
+        # 状态：全失败 → FAILED；有 failure 但 succeeded>0 → PARTIAL；否则 SUCCEEDED
+        if outcome.repos_succeeded == 0 and outcome.repos_attempted > 0:
+            job.status = CrawlStatus.FAILED
+        elif outcome.failures:
+            job.status = CrawlStatus.PARTIAL
+        else:
+            job.status = CrawlStatus.SUCCEEDED
+        job.finished_at = datetime.now(timezone.utc)
+        job.stats = {
+            **(job.stats or {}),
+            "duration_seconds": elapsed,
+            "repos_attempted": outcome.repos_attempted,
+            "repos_succeeded": outcome.repos_succeeded,
+            "repos_failed": outcome.repos_failed,
+            "issues_enqueued": outcome.issues_enqueued,
+            "issues_reused": outcome.issues_reused,
+            "failures": outcome.failures,
+        }
+        log.info("crawler.target_done",
+                 target_id=str(target_id), **{
+                     k: v for k, v in {
+                         "succeeded": outcome.repos_succeeded,
+                         "failed": outcome.repos_failed,
+                         "enqueued": outcome.issues_enqueued,
+                         "duration_s": elapsed,
+                     }.items()
+                 })
+        return outcome
+
     # ------- issue URL -------
 
     async def _handle_issue_url(
@@ -188,7 +322,7 @@ class CrawlerService:
         except RateLimitedError as e:
             raise RateLimited(str(e), retry_after_seconds=e.retry_after_seconds) from e
 
-        new_count, reused_count, skipped = await self._upsert_issues(
+        new_count, reused_count, skipped, _new_ids = await self._upsert_issues(
             repo, [gh_issue], job_id=job.id, source=IssueSource.MANUAL,
         )
         return ManualCrawlOutcome(
@@ -229,7 +363,7 @@ class CrawlerService:
         except RateLimitedError as e:
             raise RateLimited(str(e), retry_after_seconds=e.retry_after_seconds) from e
 
-        new_count, reused_count, skipped = await self._upsert_issues(
+        new_count, reused_count, skipped, _new_ids = await self._upsert_issues(
             repo, gh_issues, job_id=job.id, source=IssueSource.MANUAL,
         )
         return ManualCrawlOutcome(
@@ -345,7 +479,8 @@ class CrawlerService:
         *,
         job_id: uuid.UUID,
         source: IssueSource,
-    ) -> tuple[int, int, dict[str, int]]:
+        enqueue_now: bool = True,
+    ) -> tuple[int, int, dict[str, int], list[uuid.UUID]]:
         skipped: dict[str, int] = {}
         new_count = 0
         reused_count = 0
@@ -383,10 +518,11 @@ class CrawlerService:
             new_issue_ids.append(issue.id)
             new_count += 1
 
-        # 全部提交后再入 Celery 队列（事务安全：DB commit 在 caller，但 send_task 不依赖 commit）
-        if new_issue_ids:
+        # 2.2 修正：enqueue_now=True（manual URL 路径，小批量，commit 快）保留旧行为；
+        # 2.2 from_target 路径设 False，让 caller 在 commit 后批量 enqueue 避免 race
+        if new_issue_ids and enqueue_now:
             self._enqueue_analyze(new_issue_ids)
-        return new_count, reused_count, skipped
+        return new_count, reused_count, skipped, new_issue_ids
 
     def _enqueue_analyze(self, issue_ids: list[uuid.UUID]) -> None:
         # 延迟 import：避免 worker 启动时循环 import
