@@ -153,3 +153,27 @@ review_queue  → worker-review  (推荐 scale: 3)
 | C | `REJECTED` | `REVIEW_REJECTED` → `QUEUED_DEV` | review_cycle < MAX_REVIEW_RETRY(3) |
 | C | review_cycle 超限 | `ARCHIVED` | 防死循环保护 |
 | C | `APPROVED` | `PR_SUBMITTED` | — |
+
+---
+
+## Agent B 上下文压缩（2.3）
+
+Agent B 在沙箱内通过 Claude Code CLI headless 运行，CLI 自身管理对话上下文。
+我们的控制面只有以下三道防线，不实现自己的压缩器：
+
+1. **`--max-turns`（默认 25）**：上限保护；超过即使没有 `/compact` 也会终止
+   循环，dev_worker 走失败路径
+2. **Claude Code CLI 内置 auto-compact**：CLI 在 context window 接近上限时
+   自动压缩历史对话（不需要我们传 flag；默认开启）。我们仅通过
+   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` 关闭遥测，未触动压缩行为
+3. **卡死检测（dev_worker 端）**：`StuckDetector` 监测连续
+   `agent_b_stuck_window`（默认 12）个 tool_use 全为只读工具（Read/Glob/Grep/
+   WebFetch/WebSearch/TodoWrite）时主动停容器，标 `failure_reason=stuck`，
+   走 Agent B 重试链路（max_dev_retry）
+
+只读工具 vs 推进工具的判定见 `app/agents/stuck_detector.py::READ_ONLY_TOOLS`
++ `MUTATING_TOOLS`。
+
+> 如果未来 Agent B 需要更细粒度的上下文压缩（如选择性裁剪历史 tool 输出 /
+> 分阶段任务记忆），3.x 阶段再做。当前 MVP 不需要——`--max-turns 25` +
+> CLI 内置压缩 + 卡死检测三层兜底已足。

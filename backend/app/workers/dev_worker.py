@@ -307,6 +307,14 @@ async def _sandbox_phase(
     total_cost_usd = 0.0
     num_turns = 0
     timed_out = False
+    stuck_detected = False
+
+    # 2.3 卡死检测
+    from app.agents.stuck_detector import StuckDetector
+    stuck_window = settings.agent_b_stuck_window
+    stuck_detector = (
+        StuckDetector(window_size=stuck_window) if stuck_window > 0 else None
+    )
 
     redis_client = aioredis.from_url(settings.redis_url, decode_responses=False)
     try:
@@ -335,6 +343,29 @@ async def _sandbox_phase(
                     if parsed.total_cost_usd:
                         total_cost_usd = parsed.total_cost_usd
                         num_turns = parsed.num_turns or num_turns
+                    # 2.3 卡死检测：观察工具调用并在 stuck 时主动 stop
+                    if stuck_detector is not None and parsed.tool_name:
+                        stuck_detector.observe(parsed.tool_name)
+                        if stuck_detector.is_stuck():
+                            stuck_detected = True
+                            log.warning(
+                                "dev_worker.stuck",
+                                dev_task_id=str(dev_task_id),
+                                window=stuck_detector.snapshot(),
+                            )
+                            await dev_log_service.append(
+                                s, redis_client, dev_task_id=dev_task_id,
+                                level=DevLogLevel.ERROR, step=DevLogStep.SYSTEM,
+                                message=(
+                                    f"[stuck] Agent B has read {stuck_window} "
+                                    f"tools in a row without any write/edit/test. "
+                                    f"Killing container."
+                                ),
+                            )
+                            await loop.run_in_executor(
+                                executor, lambda: _sandbox.stop(container),
+                            )
+                            break
 
     except asyncio.TimeoutError:
         timed_out = True
@@ -396,12 +427,16 @@ async def _sandbox_phase(
         "report_kind": report_kind,
         "report_payload": report_payload,
         "timed_out": timed_out,
+        "stuck_detected": stuck_detected,
         "total_cost_usd": total_cost_usd,
         "num_turns": num_turns,
         "git_diff": git_diff,
         "branch_pushed": branch_pushed,
-        "failure_reason": None,
-        "failure_detail": None,
+        "failure_reason": "stuck" if stuck_detected else None,
+        "failure_detail": (
+            f"Killed after {stuck_window} consecutive read-only tool calls."
+            if stuck_detected else None
+        ),
     }
 
 

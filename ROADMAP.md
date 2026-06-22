@@ -178,7 +178,9 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [ ] APScheduler 定时任务（可配置 cron）
 - [ ] 抓取日志页（看板）
 
-### 里程碑 2.3 — 边界处理 + 完整兜底 + PR 学习数据延展
+### 里程碑 2.3 — 边界处理 + 完整兜底 + PR 学习数据延展 ✅ 已完成 2026-06-22
+
+> **学习闭环自洽。** 13 个子项全部交付：webhook 工具 + 退回循环（C→B + B→B）+ task 级 fallback + 占位入库 + 分类器 + schema 重试 + PR 关闭后人工流 + 维护 cron + 卡死检测 + 上下文压缩策略文档化。9 个 commit 完成；总 unit suite 175 passed，5 次端到端 replay 验证。详见各 commit 与各子项标注。
 
 - [x] **Webhook 本地回放工具**（2026-06-22）：`scripts/replay_github_webhook.py` 支持 merged / closed / review / comment / ping，可选 `--from-github` 拉真实 PR payload；端到端验证 PR_MERGED + PR_CLOSED + review_received + comment_received 4 条路径全跑通；`docs/PR_CREATION_TROUBLESHOOTING.md` 提供 fine-grained vs classic PAT、手动 fork 兜底、`pr_skip_no_fork` 触发条件说明
 - [x] **Agent B 重试机制**（2026-06-22，max_dev_retry 默认 2）：dev_worker 失败路径在转 DEV_FAILED 后按 `decide_retry_or_archive(attempt, max_dev_retry)` 决定是否建新 DevTask(attempt_number+1, review_context=`build_failure_review_context(...)`) + `re_queue_dev`（DEV_FAILED → QUEUED_DEV，已在白名单）+ 入 `dev_queue`。复用 review_worker 的 decide 函数避免规则漂移。`build_failure_review_context` 把 prev failure_reason / failure_detail 写成 Agent B 可读 prompt 块 + 加 "若仍解不开请直接 report_failure 不要凑半成品" 的劝阻句。8 项 test_dev_retry.py（4 模板 + 4 边界）
@@ -190,8 +192,8 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] **STALE 自动归档**（2026-06-22，daily 03:07 UTC）：扫 `status=IGNORED AND updated_at < now - 30d` → `mark_archived(reason=stale_ignored_over_30_days)`
 - [x] **APScheduler infra**（2026-06-22）：`app/scheduler.py::AsyncIOScheduler` 在 FastAPI lifespan 启动；`app/workers/maintenance_worker.py` 提供 `stale_archive_scan` / `revert_scan` Celery 任务（跑在 worker 容器，复用 classify_queue）；scheduler 在 API 容器 send_task 触发。`/api/v1/admin/run-maintenance?job=...` + `/scheduler-jobs` 用于手动触发与诊断。10 项 test_maintenance.py + e2e: stale 1 row → ARCHIVED，revert checked=1 reverted=0（dry run PR 未被实际 revert）
 - [x] **PR 关闭后人工审核流程**（2026-06-22）：POST `/api/v1/issues/{id}/pr-closed-decide` 接 `{action: "restart_dev" | "archive"}`。restart_dev → 新 DevTask(review_context="Previous PR was closed by maintainer...") + `re_queue_dev`（PR_CLOSED → QUEUED_DEV）+ 入 dev_queue；archive → `mark_archived`（PR_CLOSED → ARCHIVED）。前端 PRPanel 在 PR_CLOSED 状态下展示「重新开发 / 归档」两按钮 + ApiError 行内显示。e2e curl 验证 restart_dev / archive / invalid_action / wrong_state 4 条路径
-- [ ] 卡死检测完整实现（repeated_read / no_write 等模式）
-- [ ] 上下文压缩（Agent B 长 loop 时触发）
+- [x] **卡死检测**（2026-06-22）：`app/agents/stuck_detector.py::StuckDetector` 滑动窗口（`agent_b_stuck_window` 默认 12）；窗口被 READ_ONLY_TOOLS{Read/Glob/Grep/WebFetch/WebSearch/TodoWrite} 填满且无 MUTATING_TOOLS{Write/Edit/NotebookEdit/Bash/MultiEdit} 时判定 stuck。dev_worker sandbox_phase 监测 `parsed.tool_name` 触发；命中时 `_sandbox.stop` + DevLog ERROR + `failure_reason=stuck`，复用现有 retry 链路。`AgentB.parse_stream_line` 新增 `tool_name` 字段，自动去掉 MCP 前缀且过滤 report_* 终止工具。16 项 test_stuck_detector.py（窗口边界 + 工具识别 + MCP 前缀 + report 工具过滤）
+- [x] **上下文压缩**（2026-06-22）：交给 Claude Code CLI 内置 auto-compact，不自建。决策记录到 `docs/AGENT_RUNTIME.md::"Agent B 上下文压缩（2.3）"`。三道防线：`--max-turns 25` 硬上限 + CLI 自压缩 + 卡死检测主动 kill
 - [x] **Schema 校验失败重试**（2026-06-22，Agent A / C / RejectionClassifier 三处）：抽出 `app/agents/_schema_retry.py::call_with_schema_retry`；第 1 次 schema fail 时第 2 次 call 追加 correction hint（"your previous output failed: ... re-call tool"）；两次仍失败抛 SchemaValidationError，all_attempts 合并供 persist_attempts 一次入库。ToolNotCalledError 不重试（深层不合作，再调徒劳）。4 项 test_schema_retry.py 覆盖：valid 不 retry / invalid→valid retry 一次 / 两次 invalid 抛错 / tool_not_called 立刻判错
 
 ### 里程碑 2.4 — 看板完善

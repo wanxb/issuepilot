@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     sandbox_image_prefix: str = "agent-sandbox"
     dev_task_timeout_minutes: int = 20
     agent_b_max_turns: int = 25
+    # 2.3 卡死检测：窗口大小（连续 N 次只读/无写就杀容器）；0 关闭
+    agent_b_stuck_window: int = 12
     sandbox_cache_dir: str = "./.sandbox_cache"
     sandbox_workspace_dir: str = "./.sandbox_workspaces"
 

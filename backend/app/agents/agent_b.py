@@ -40,6 +40,9 @@ class ParsedLine:
     num_turns: int | None = None
     total_cost_usd: float | None = None
     stop_reason: str | None = None
+    # 2.3 卡死检测：本行 assistant 调用的工具简名（Read/Edit/Bash/...）
+    # 一行可能有多个 tool_use；取最后一个用于状态推进
+    tool_name: str | None = None
 
 
 def _detect_step(text: str) -> DevLogStep:
@@ -123,6 +126,7 @@ class AgentB:
         texts: list[str] = []
         report_kind = None
         report_payload = None
+        last_tool_name: str | None = None
 
         for block in content_list:
             if not isinstance(block, dict):
@@ -143,6 +147,10 @@ class AgentB:
                     texts.append(f"[report_failure called: {tool_input.get('reason', '?')}]")
                 else:
                     texts.append(f"[tool: {tool_name}]")
+                # 2.3 卡死检测：记录非 MCP 的工具名，按短名（"Read" / "Bash" / ...）
+                short = tool_name.rsplit("__", 1)[-1] if "__" in tool_name else tool_name
+                if short and short not in {"report_completion", "report_failure"}:
+                    last_tool_name = short
 
         message = " ".join(t.strip() for t in texts if t.strip())[:500]
         if not message:
@@ -159,6 +167,7 @@ class AgentB:
         result = ParsedLine(step=step, level=level, message=message)
         result.report_kind = report_kind
         result.report_payload = report_payload
+        result.tool_name = last_tool_name
         return result
 
     def _parse_result_event(self, obj: dict[str, Any]) -> ParsedLine:
