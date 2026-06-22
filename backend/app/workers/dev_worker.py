@@ -435,8 +435,9 @@ async def _result_phase(
     failure_reason = sandbox_result.get("failure_reason")
     failure_detail = sandbox_result.get("failure_detail")
 
-    # 是否需要触发 review_worker
+    # 是否需要触发 review_worker / dev_worker retry
     enqueue_review = False
+    retry_ctx: dict[str, Any] | None = None
 
     async with session_scope() as s:
         svc = IssueService(s)
@@ -500,6 +501,17 @@ async def _result_phase(
             except InvalidTransitionError as e:
                 log.error("dev_worker.transition_failed", error=str(e))
 
+            # 2.3: Agent B 重试机制——按 attempt_number vs max_dev_retry
+            # 决定是否建新 DevTask 重入（仅在转 DEV_FAILED 成功后才考虑重试）
+            if issue.status == IssueStatus.DEV_FAILED:
+                retry_ctx = await _enqueue_dev_retry_or_stop(
+                    session=s,
+                    svc=svc,
+                    issue=issue,
+                    prev_dev_task=dev_task,
+                    max_attempts=get_settings().max_dev_retry,
+                )
+
     # 1.5b: 成功路径下触发 review_worker（必须在 DB session 关闭后发，
     # 否则 worker 可能比 commit 还快读到旧状态）
     if enqueue_review:
@@ -507,6 +519,21 @@ async def _result_phase(
             "app.workers.review_worker.review_dev_task",
             args=[str(issue_id), str(dev_task_id)],
             queue="review_queue",
+        )
+
+    # 2.3: 失败重试入队（同样必须 commit 后再发）
+    if retry_ctx and retry_ctx.get("action") == "retry":
+        celery_app.send_task(
+            "app.workers.dev_worker.develop_issue",
+            args=[str(issue_id), str(retry_ctx["new_dev_task_id"])],
+            queue="dev_queue",
+        )
+        log.info(
+            "dev_worker.retry_enqueued",
+            issue_id=str(issue_id),
+            new_dev_task_id=str(retry_ctx["new_dev_task_id"]),
+            new_attempt=retry_ctx["new_attempt"],
+            prev_failure=retry_ctx["prev_failure_reason"],
         )
 
     log.info(
@@ -517,12 +544,14 @@ async def _result_phase(
         cost=total_cost_usd,
         turns=num_turns,
         review_enqueued=enqueue_review,
+        retry_action=(retry_ctx or {}).get("action"),
     )
     return {
         "success": success,
         "total_cost_usd": total_cost_usd,
         "num_turns": num_turns,
         "failure_reason": dev_task.failure_reason if not success else None,
+        "retry_enqueued": bool(retry_ctx and retry_ctx.get("action") == "retry"),
     }
 
 
@@ -565,3 +594,92 @@ def _render_profile_block(profile) -> str | None:  # type: ignore[no-untyped-def
 
 def _get_timeout_minutes() -> int:
     return get_settings().dev_task_timeout_minutes
+
+
+# ---------------------------------------------------------------------------
+# 2.3: Agent B 重试机制
+# ---------------------------------------------------------------------------
+
+
+def build_failure_review_context(
+    prev_dev_task: DevTask, *, prev_attempt: int,
+) -> str:
+    """把上一次 dev 失败的原因包成给下次 Agent B 看的 review_context 文本。
+
+    与 review_worker.build_review_context 风格一致；Agent B 既有的
+    review_context 字段同时承载 "评审退回" 和 "上次失败" 两类信号。
+    """
+    reason = prev_dev_task.failure_reason or "unknown"
+    detail = (prev_dev_task.failure_detail or "").strip() or "(no detail)"
+    lines = [
+        f"Previous dev attempt {prev_attempt} failed.",
+        f"Failure reason: {reason}",
+        "Failure detail:",
+        detail[:1500],
+        "",
+        "Avoid repeating the same approach. If the problem looks unsolvable "
+        "(missing external service / fundamentally invalid issue / out of scope), "
+        "call report_failure with a clear reason rather than producing a partial fix.",
+    ]
+    return "\n".join(lines).strip()
+
+
+async def _enqueue_dev_retry_or_stop(
+    *,
+    session,
+    svc: IssueService,
+    issue: Issue,
+    prev_dev_task: DevTask,
+    max_attempts: int,
+) -> dict[str, Any]:
+    """决定是否建新 DevTask 重入。
+
+    复用 review_worker.decide_retry_or_archive 的语义：
+        attempt < max → "retry"，否则 "terminal"（保持 DEV_FAILED 等用户介入）。
+
+    返回 dict：commit 后由调用方决定是否 send_task。
+    """
+    # 局部 import 避免循环依赖
+    from app.workers.review_worker import decide_retry_or_archive
+
+    attempt = prev_dev_task.attempt_number or 1
+    action = decide_retry_or_archive(
+        review_attempt=attempt, max_attempts=max_attempts,
+    )
+    if action != "retry":
+        log.info(
+            "dev_worker.retry_exhausted",
+            issue_id=str(issue.id),
+            attempts=attempt,
+            max=max_attempts,
+        )
+        return {"action": "terminal"}
+
+    new_dev_task = DevTask(
+        issue_id=issue.id,
+        attempt_number=attempt + 1,
+        status=DevTaskStatus.PENDING,
+        review_context=build_failure_review_context(
+            prev_dev_task, prev_attempt=attempt,
+        ),
+    )
+    session.add(new_dev_task)
+    await session.flush()
+
+    try:
+        # 复用 IssueService.re_queue_dev：DEV_FAILED 已在 QUEUED_DEV 白名单内
+        await svc.re_queue_dev(issue)
+    except InvalidTransitionError as e:
+        log.error(
+            "dev_worker.retry_transition_failed",
+            issue_id=str(issue.id),
+            error=str(e),
+        )
+        return {"action": "noop"}
+
+    return {
+        "action": "retry",
+        "new_dev_task_id": new_dev_task.id,
+        "new_attempt": new_dev_task.attempt_number,
+        "prev_failure_reason": prev_dev_task.failure_reason,
+    }
