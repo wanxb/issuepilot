@@ -180,7 +180,7 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 ### 里程碑 2.3 — 边界处理 + 完整兜底 + PR 学习数据延展 ✅ 已完成 2026-06-22
 
-> **学习闭环自洽。** 13 个子项全部交付：webhook 工具 + 退回循环（C→B + B→B）+ task 级 fallback + 占位入库 + 分类器 + schema 重试 + PR 关闭后人工流 + 维护 cron + 卡死检测 + 上下文压缩策略文档化。9 个 commit 完成；总 unit suite 175 passed，5 次端到端 replay 验证。详见各 commit 与各子项标注。
+> **学习闭环自洽 + 验收 dry run 通过。** 13 个子项全部交付 + 15 项端到端验收矩阵全绿，详见 `docs/DRY_RUN_PHASE2_3_REPORT.md`。9 个 commit 完成；总 unit suite 175 passed。
 
 - [x] **Webhook 本地回放工具**（2026-06-22）：`scripts/replay_github_webhook.py` 支持 merged / closed / review / comment / ping，可选 `--from-github` 拉真实 PR payload；端到端验证 PR_MERGED + PR_CLOSED + review_received + comment_received 4 条路径全跑通；`docs/PR_CREATION_TROUBLESHOOTING.md` 提供 fine-grained vs classic PAT、手动 fork 兜底、`pr_skip_no_fork` 触发条件说明
 - [x] **Agent B 重试机制**（2026-06-22，max_dev_retry 默认 2）：dev_worker 失败路径在转 DEV_FAILED 后按 `decide_retry_or_archive(attempt, max_dev_retry)` 决定是否建新 DevTask(attempt_number+1, review_context=`build_failure_review_context(...)`) + `re_queue_dev`（DEV_FAILED → QUEUED_DEV，已在白名单）+ 入 `dev_queue`。复用 review_worker 的 decide 函数避免规则漂移。`build_failure_review_context` 把 prev failure_reason / failure_detail 写成 Agent B 可读 prompt 块 + 加 "若仍解不开请直接 report_failure 不要凑半成品" 的劝阻句。8 项 test_dev_retry.py（4 模板 + 4 边界）
