@@ -182,7 +182,7 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 - [x] **Webhook 本地回放工具**（2026-06-22）：`scripts/replay_github_webhook.py` 支持 merged / closed / review / comment / ping，可选 `--from-github` 拉真实 PR payload；端到端验证 PR_MERGED + PR_CLOSED + review_received + comment_received 4 条路径全跑通；`docs/PR_CREATION_TROUBLESHOOTING.md` 提供 fine-grained vs classic PAT、手动 fork 兜底、`pr_skip_no_fork` 触发条件说明
 - [ ] Agent B 重试机制（携带失败原因重入，最多 2 次）
-- [ ] Agent C → Agent B 退回循环（最多 3 次，超限 ARCHIVED）
+- [x] **Agent C → Agent B 退回循环**（2026-06-22，最多 `max_review_retry=3` 次，超限 ARCHIVED）：`review_worker` REJECTED 路径分叉为 retry / archive；retry 时建新 `dev_task(attempt_number+1, review_context=...)` + `IssueService.re_queue_dev` + 入 `dev_queue`；超限时 `IssueService.mark_archived`。`build_review_context()` 把 5 维评分 + 失败维度评语 + rejection_reason 包成结构化 text 注入 Agent B prompt（已存在的 `<repo_profile>` + review_context 字段）。`_ALLOWED_FROM[ARCHIVED]` 新增 `REVIEW_REJECTED` 出口；15 项 `test_review_retry.py` 覆盖边界 + 模板 + 状态机白名单
 - [ ] **task 级 fallback**：Agent B 整 task 失败 / Agent C 退回 ≥2 次时，下次 dev 切换 fallback provider（混合策略剩余部分）
 - [ ] **RejectionClassifier Agent**（Haiku 4.5）：把 maintainer review/close 自由文本分类为 category/severity/dimension/agent_b_attribution
 - [ ] Webhook：pull_request_review + issue_comment 写入 `rejection_reasons` (source=maintainer_review/maintainer_close)

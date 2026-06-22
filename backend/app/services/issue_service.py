@@ -44,6 +44,7 @@ _ALLOWED_FROM: dict[IssueStatus, set[IssueStatus]] = {
         IssueStatus.IGNORED,
         IssueStatus.PR_CLOSED,
         IssueStatus.PR_MERGED,
+        IssueStatus.REVIEW_REJECTED,  # 2.3: Agent C → B 退回超限
     },
 }
 
@@ -163,6 +164,24 @@ class IssueService:
     async def mark_pr_closed(self, issue: Issue) -> Issue:
         """PR_SUBMITTED → PR_CLOSED"""
         return await self.transition(issue, to=IssueStatus.PR_CLOSED)
+
+    async def mark_archived(
+        self,
+        issue: Issue,
+        *,
+        reason: str | None = None,
+    ) -> Issue:
+        """ARCHIVED 入口。当前仅 2.3 退回循环超限时被 review_worker 调到，
+        future：用户手动 archive / STALE 自动归档（2.3 后续子项）。
+        """
+        result = await self.transition(issue, to=IssueStatus.ARCHIVED)
+        if reason:
+            log.info("issue.archived", issue_id=str(issue.id), reason=reason)
+        return result
+
+    async def re_queue_dev(self, issue: Issue) -> Issue:
+        """REVIEW_REJECTED → QUEUED_DEV（Agent C 退回 → 重入开发）。"""
+        return await self.transition(issue, to=IssueStatus.QUEUED_DEV)
 
     async def finish_analyzing(
         self,

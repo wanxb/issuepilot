@@ -27,6 +27,8 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
+from typing import Any
+
 import structlog
 from celery import Task
 from sqlalchemy import select
@@ -37,6 +39,7 @@ from app.agents.agent_c import (
     ToolNotCalledError,
 )
 from app.agents.schemas import AgentCInput, AgentCOutput, TestResult
+from app.core.config import get_settings
 from app.db.database import session_scope
 from app.llm.base import LLMCallError
 from app.llm.factory import build_client
@@ -229,6 +232,7 @@ async def _review_dev_task_async(
                 prompt_version=agent.prompt_version,
             )
 
+            retry_ctx: dict[str, Any] | None = None
             if output.verdict == "APPROVED":
                 # 收集 PR 创建所需的上下文，session 关闭后调外部 API
                 pr_ctx = {
@@ -258,6 +262,17 @@ async def _review_dev_task_async(
                     await svc.mark_review_rejected(issue)
                 except InvalidTransitionError as e:
                     log.error("review_worker.transition_failed", error=str(e))
+                else:
+                    # 2.3: 退回循环——决定 retry 还是 archive
+                    retry_ctx = await _enqueue_retry_or_archive(
+                        session=s,
+                        svc=svc,
+                        issue=issue,
+                        prev_dev_task=dev_task,
+                        review_task=review_task,
+                        output=output,
+                        max_attempts=get_settings().max_review_retry,
+                    )
 
         # ---- Phase 5: APPROVED 时创建 PR（DB session 外，避免持锁等 GitHub）----
         pr_outcome: dict[str, object] = {}
@@ -266,6 +281,21 @@ async def _review_dev_task_async(
                 issue_id=issue_id,
                 review_task_id=review_task_id,
                 ctx=pr_ctx,
+            )
+
+        # ---- Phase 5b: 退回循环 retry 时入队新 dev_task（commit 后再发，
+        # 避免 dev_worker 比 commit 还快读到旧状态）----
+        if retry_ctx and retry_ctx.get("action") == "retry":
+            celery_app.send_task(
+                "app.workers.dev_worker.develop_issue",
+                args=[str(issue_id), str(retry_ctx["new_dev_task_id"])],
+                queue="dev_queue",
+            )
+            log.info(
+                "review_worker.retry_enqueued",
+                issue_id=str(issue_id),
+                new_dev_task_id=str(retry_ctx["new_dev_task_id"]),
+                new_attempt=retry_ctx["new_attempt"],
             )
 
         log.info(
@@ -366,6 +396,113 @@ def _add_rejection_inline(
         classified_by="agent_c",
     )
     session.add(rejection)
+
+
+def decide_retry_or_archive(*, review_attempt: int, max_attempts: int) -> str:
+    """纯函数：根据本次 review 的 attempt 序号决定下一步。
+
+    review_attempt = 1: max_attempts=3 时还能 retry 两次 → "retry"
+    review_attempt = max_attempts: 已耗尽 → "archive"
+
+    max_attempts < 1: 总是 archive（关掉退回循环 = 单次评审策略）。
+    """
+    if max_attempts <= 0:
+        return "archive"
+    return "retry" if review_attempt < max_attempts else "archive"
+
+
+def build_review_context(output: AgentCOutput, *, attempt_number: int) -> str:
+    """把 Agent C 的 REJECTED 输出包成给 Agent B 看的 review_context 文本。
+
+    给 Agent B 看的是：你上次错在哪 + 修哪几行的引用。保留正确的部分。
+    """
+    lines: list[str] = [
+        f"Previous review (attempt {attempt_number}) verdict: REJECTED",
+        f"Overall score: {output.overall_score:.2f}",
+        "",
+    ]
+
+    failed_dims = [
+        (name, dim) for name, dim in output.dimensions.items() if not dim.passed
+    ]
+    if failed_dims:
+        lines.append("Failing dimensions (address these first):")
+        for name, dim in failed_dims:
+            lines.append(f"- {name} (score {dim.score}): {dim.comment}")
+        lines.append("")
+
+    if output.rejection_reason:
+        lines.append("Reviewer rejection_reason:")
+        lines.append(output.rejection_reason)
+        lines.append("")
+
+    if output.overall_comment:
+        lines.append("Reviewer overall_comment:")
+        lines.append(output.overall_comment)
+        lines.append("")
+
+    lines.append(
+        "Keep the parts of your previous diff that were correct. "
+        "Only revise what was flagged above. Do not introduce unrelated changes."
+    )
+    return "\n".join(lines).strip()
+
+
+async def _enqueue_retry_or_archive(
+    *,
+    session,
+    svc: IssueService,
+    issue: Issue,
+    prev_dev_task: DevTask,
+    review_task: ReviewTask,
+    output: AgentCOutput,
+    max_attempts: int,
+) -> dict[str, Any]:
+    """REJECTED 路径分叉：retry → 新 DevTask + Issue → QUEUED_DEV；
+    超限 → archive → Issue → ARCHIVED。
+
+    返回的 dict 由调用方在 commit 后用于决定是否 send_task。
+    """
+    action = decide_retry_or_archive(
+        review_attempt=review_task.attempt_number,
+        max_attempts=max_attempts,
+    )
+    if action == "archive":
+        try:
+            await svc.mark_archived(
+                issue,
+                reason=f"review_retry_exhausted_after_{review_task.attempt_number}_attempts",
+            )
+        except InvalidTransitionError as e:
+            log.error("review_worker.archive_transition_failed", error=str(e))
+        return {"action": "archive"}
+
+    # retry：建新 DevTask 携带 review_context，转 REVIEW_REJECTED → QUEUED_DEV
+    from app.models.enums import DevTaskStatus
+
+    review_context = build_review_context(
+        output, attempt_number=review_task.attempt_number,
+    )
+    new_dev_task = DevTask(
+        issue_id=issue.id,
+        attempt_number=(prev_dev_task.attempt_number or 1) + 1,
+        status=DevTaskStatus.PENDING,
+        review_context=review_context,
+    )
+    session.add(new_dev_task)
+    await session.flush()
+
+    try:
+        await svc.re_queue_dev(issue)
+    except InvalidTransitionError as e:
+        log.error("review_worker.retry_transition_failed", error=str(e))
+        return {"action": "noop"}
+
+    return {
+        "action": "retry",
+        "new_dev_task_id": new_dev_task.id,
+        "new_attempt": new_dev_task.attempt_number,
+    }
 
 
 def _classify_from_dimensions(
