@@ -14,8 +14,12 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from pydantic import ValidationError
 
+from app.agents._schema_retry import (
+    SchemaValidationError,  # re-export
+    ToolNotCalledError,     # re-export
+    call_with_schema_retry,
+)
 from app.agents.prompts.agent_c import (
     PROMPT_VERSION,
     SYSTEM_PROMPT,
@@ -23,23 +27,12 @@ from app.agents.prompts.agent_c import (
 )
 from app.agents.schemas import AgentCInput, AgentCOutput
 from app.agents.tools import SUBMIT_REVIEW_TOOL
-from app.llm.base import Message
 from app.llm.fallback import FallbackLLMClient
 from app.models.enums import AgentKind
 
 log = structlog.get_logger(__name__)
 
-
-class SchemaValidationError(Exception):
-    """LLM 输出未通过 pydantic schema 校验。"""
-
-    def __init__(self, message: str, *, raw_input: dict[str, Any] | None) -> None:
-        super().__init__(message)
-        self.raw_input = raw_input
-
-
-class ToolNotCalledError(Exception):
-    """模型没调用 submit_review 终止工具。"""
+__all__ = ["AgentC", "SchemaValidationError", "ToolNotCalledError"]
 
 
 class AgentC:
@@ -57,40 +50,18 @@ class AgentC:
         self._temperature = temperature
 
     async def review(self, input: AgentCInput) -> tuple[AgentCOutput, Any]:
-        """跑一次评审。返回 (parsed_output, llm_response)。"""
-        user_msg = build_user_message(input)
-        resp = await self._llm.call(
-            messages=[Message(role="user", content=user_msg)],
+        """跑一次评审。返回 (parsed_output, llm_response)。
+
+        2.3：schema 校验失败时内部 retry 一次。
+        """
+        return await call_with_schema_retry(
+            llm=self._llm,
+            user_msg=build_user_message(input),
             system=SYSTEM_PROMPT,
-            tools=[SUBMIT_REVIEW_TOOL],
+            tool=SUBMIT_REVIEW_TOOL,
+            output_cls=AgentCOutput,
+            agent_kind=AgentKind.AGENT_C,
+            agent_label="agent_c",
             max_tokens=self._max_tokens,
             temperature=self._temperature,
-            agent_kind=AgentKind.AGENT_C,
         )
-
-        tool_input = resp.get_tool_use(SUBMIT_REVIEW_TOOL.name)
-        if tool_input is None:
-            log.warning(
-                "agent_c.tool_not_called",
-                stop_reason=resp.stop_reason,
-                text_preview=resp.text()[:200],
-            )
-            raise ToolNotCalledError(
-                f"Model did not call {SUBMIT_REVIEW_TOOL.name}; "
-                f"stop_reason={resp.stop_reason!r}",
-            )
-
-        try:
-            parsed = AgentCOutput.model_validate(tool_input)
-        except ValidationError as e:
-            log.warning(
-                "agent_c.schema_validation_failed",
-                errors=e.errors()[:5],
-                raw=tool_input,
-            )
-            raise SchemaValidationError(
-                f"submit_review output failed schema: {e.errors()[:3]}",
-                raw_input=tool_input,
-            ) from e
-
-        return parsed, resp

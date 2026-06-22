@@ -11,6 +11,7 @@ import type {
   DecideAction,
   IssueListItem,
   IssueListResponse,
+  PRClosedAction,
   PRFinalOutcome,
   PullRequestView,
 } from "@/lib/types";
@@ -147,6 +148,9 @@ function IssueRow({ item, onDecided }: IssueRowProps) {
         {item.pull_request && (
           <CardContent>
             <PRPanel pr={item.pull_request} />
+            {item.status === "PR_CLOSED" && (
+              <PRClosedActions item={item} onDecided={onDecided} />
+            )}
           </CardContent>
         )}
       </Card>
@@ -240,6 +244,54 @@ function DecideActions({ item, onDecided }: IssueRowProps) {
     </div>
   );
 }
+
+function PRClosedActions({ item, onDecided }: IssueRowProps) {
+  const [submitting, setSubmitting] = useState<PRClosedAction | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function go(action: PRClosedAction) {
+    setSubmitting(action);
+    setError(null);
+    try {
+      const updated = await api.prClosedDecide(item.id, action);
+      onDecided?.(updated);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? `[${err.detail.code}] ${err.detail.message}`
+          : err instanceof Error
+            ? err.message
+            : "操作失败",
+      );
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+      <span className="text-xs text-muted-foreground">PR 已关闭，下一步：</span>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => void go("restart_dev")}
+        disabled={submitting !== null}
+      >
+        {submitting === "restart_dev" ? "提交中..." : "重新开发"}
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => void go("archive")}
+        disabled={submitting !== null}
+      >
+        {submitting === "archive" ? "提交中..." : "归档"}
+      </Button>
+      {error && <span className="text-xs text-destructive">{error}</span>}
+    </div>
+  );
+}
+
 
 function StatusBadge({ status }: { status: string }) {
   const variant: "default" | "success" | "warning" | "secondary" | "destructive" =

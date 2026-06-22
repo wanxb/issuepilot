@@ -107,6 +107,7 @@ export interface ManualSubmitResponse {
 }
 
 export type DecideAction = "ignore" | "start_dev";
+export type PRClosedAction = "restart_dev" | "archive";
 
 export interface ApiErrorDetail {
   code: string;

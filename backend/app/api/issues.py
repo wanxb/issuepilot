@@ -21,7 +21,7 @@ from app.models.evaluation import Evaluation
 from app.models.issue import Issue
 from app.models.pull_request import PullRequest
 from app.models.repository import Repository
-from app.schemas.decide import DecideRequest
+from app.schemas.decide import DecideRequest, PRClosedDecideRequest
 from app.schemas.issue import IssueListItem, IssueListResponse
 from app.services.issue_service import (
     InvalidDecisionError,
@@ -219,6 +219,111 @@ async def decide(
         )
 
     # 重读一次以让关系加载齐全
+    fresh = await svc.get(issue.id)
+    item = IssueListItem.model_validate(fresh)
+    if dev_task is not None:
+        item.active_dev_task_id = dev_task.id
+    return item
+
+
+# ---------------------------------------------------------------------------
+# 2.3: PR 关闭后人工决定 —— restart_dev | archive
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{issue_id}/pr-closed-decide",
+    response_model=IssueListItem,
+    responses={
+        404: {"description": "Issue not found"},
+        409: {"description": "Issue not in PR_CLOSED state"},
+        422: {"description": "Unknown action"},
+    },
+)
+async def pr_closed_decide(
+    issue_id: uuid.UUID,
+    payload: PRClosedDecideRequest,
+    session: AsyncSession = Depends(get_session),
+) -> IssueListItem:
+    """maintainer 关掉 PR 后由人工决定：
+
+    - restart_dev：Issue PR_CLOSED → QUEUED_DEV，重建 DevTask 入 dev_queue
+    - archive    ：Issue PR_CLOSED → ARCHIVED，终态
+    """
+    svc = IssueService(session)
+    try:
+        issue = await svc.get(issue_id)
+    except IssueNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ISSUE_NOT_FOUND", "message": str(e)},
+        ) from e
+
+    if issue.status != IssueStatus.PR_CLOSED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "INVALID_STATE",
+                "message": (
+                    f"pr-closed-decide only works on PR_CLOSED issues; "
+                    f"current={issue.status.value}"
+                ),
+                "current": issue.status.value,
+            },
+        )
+
+    dev_task: DevTask | None = None
+    try:
+        if payload.action == "archive":
+            await svc.mark_archived(issue, reason="user_archived_after_pr_closed")
+        elif payload.action == "restart_dev":
+            # 计算 attempt_number（同 issue 已有 dev_task 数 + 1）
+            from sqlalchemy import func as _func
+            count = (await session.execute(
+                select(_func.count(DevTask.id)).where(DevTask.issue_id == issue.id)
+            )).scalar_one()
+            dev_task = DevTask(
+                issue_id=issue.id,
+                attempt_number=int(count) + 1,
+                status=DevTaskStatus.PENDING,
+                review_context=(
+                    "Previous PR was closed by maintainer without merge. "
+                    "Re-read the PR comments / maintainer review (visible in "
+                    "rejection_reasons + pr_outcomes) before starting; "
+                    "address the rejection reasons explicitly."
+                ),
+            )
+            session.add(dev_task)
+            await session.flush()
+            await svc.re_queue_dev(issue)  # PR_CLOSED → QUEUED_DEV
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "INVALID_ACTION",
+                        "message": f"unknown action: {payload.action!r}"},
+            )
+
+        await session.commit()
+    except InvalidTransitionError as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "INVALID_STATE_TRANSITION",
+                "message": str(e),
+                "from_state": e.from_state.value,
+                "to_state": e.to_state.value,
+            },
+        ) from e
+
+    # commit 后入队（同 decide）
+    if dev_task is not None:
+        celery_app.send_task(
+            "app.workers.dev_worker.develop_issue",
+            args=[str(issue.id), str(dev_task.id)],
+            queue="dev_queue",
+        )
+
     fresh = await svc.get(issue.id)
     item = IssueListItem.model_validate(fresh)
     if dev_task is not None:

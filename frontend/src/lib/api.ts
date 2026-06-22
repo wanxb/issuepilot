@@ -11,6 +11,7 @@ import type {
   IssueListResponse,
   ManualSubmitRequest,
   ManualSubmitResponse,
+  PRClosedAction,
 } from "@/lib/types";
 
 export class ApiError extends Error {
@@ -75,6 +76,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ action }),
     });
+  },
+
+  prClosedDecide(
+    issueId: string,
+    action: PRClosedAction,
+  ): Promise<IssueListItem> {
+    return request<IssueListItem>(
+      `/api/v1/issues/${issueId}/pr-closed-decide`,
+      {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      },
+    );
   },
 
   getDevLogs(devTaskId: string, limit = 200): Promise<DevLogEntry[]> {

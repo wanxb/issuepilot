@@ -188,10 +188,10 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] **Webhook → `rejection_reasons` 占位入库**（2026-06-22）：PRTracker.on_review_received（changes_requested / commented + 非空 body）+ on_comment_received（非空 body）+ on_pr_closed(unmerged) 写一行 RejectionReason(source=MAINTAINER_REVIEW / MAINTAINER_CLOSE)，category=OTHER / severity=MINOR / attribution=UNCLEAR / classified_by=null 作占位，等 RejectionClassifier 二次分类。approved review 不写。6 项 test_pr_tracker_rejection.py + replay 4 事件端到端 3 行入库验证
 - [ ] Revert 巡检：APScheduler 任务每日扫描 merged PR 是否被 revert，写 `pr_outcomes` (event_type=reverted_detected) 和 `pull_requests.final_outcome=REVERTED`
 - [ ] STALE 自动归档（30 天无动作）
-- [ ] PR 关闭后人工审核流程（重新开发 / 归档）
+- [x] **PR 关闭后人工审核流程**（2026-06-22）：POST `/api/v1/issues/{id}/pr-closed-decide` 接 `{action: "restart_dev" | "archive"}`。restart_dev → 新 DevTask(review_context="Previous PR was closed by maintainer...") + `re_queue_dev`（PR_CLOSED → QUEUED_DEV）+ 入 dev_queue；archive → `mark_archived`（PR_CLOSED → ARCHIVED）。前端 PRPanel 在 PR_CLOSED 状态下展示「重新开发 / 归档」两按钮 + ApiError 行内显示。e2e curl 验证 restart_dev / archive / invalid_action / wrong_state 4 条路径
 - [ ] 卡死检测完整实现（repeated_read / no_write 等模式）
 - [ ] 上下文压缩（Agent B 长 loop 时触发）
-- [ ] Schema 校验失败重试（Agent A / C）
+- [x] **Schema 校验失败重试**（2026-06-22，Agent A / C / RejectionClassifier 三处）：抽出 `app/agents/_schema_retry.py::call_with_schema_retry`；第 1 次 schema fail 时第 2 次 call 追加 correction hint（"your previous output failed: ... re-call tool"）；两次仍失败抛 SchemaValidationError，all_attempts 合并供 persist_attempts 一次入库。ToolNotCalledError 不重试（深层不合作，再调徒劳）。4 项 test_schema_retry.py 覆盖：valid 不 retry / invalid→valid retry 一次 / 两次 invalid 抛错 / tool_not_called 立刻判错
 
 ### 里程碑 2.4 — 看板完善
 
