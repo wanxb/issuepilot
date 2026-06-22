@@ -65,5 +65,6 @@ def ping() -> str:
 from app.workers import analyze_worker  # noqa: E402, F401
 from app.workers import classify_worker  # noqa: E402, F401
 from app.workers import dev_worker      # noqa: E402, F401
+from app.workers import maintenance_worker  # noqa: E402, F401
 from app.workers import profile_worker  # noqa: E402, F401
 from app.workers import review_worker   # noqa: E402, F401
