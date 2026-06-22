@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin import router as admin_router
 from app.api.crawl_jobs import router as crawl_jobs_router
+from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
 from app.api.issues import router as issues_router
 from app.api.webhooks import router as webhooks_router
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks_router)
     app.include_router(ws_router)
     app.include_router(admin_router)
+    app.include_router(dashboard_router)
     return app
 
 

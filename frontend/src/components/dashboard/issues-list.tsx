@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,14 +19,59 @@ import type {
 
 const POLL_MS = 5_000;
 
+// 2.4c：按生命周期阶段分组，方便多选过滤
+const STATUS_PRESETS: Array<{ label: string; values: string[] }> = [
+  { label: "待评估", values: ["DISCOVERED", "ANALYZING"] },
+  { label: "待决策", values: ["PENDING_DECISION"] },
+  { label: "开发中", values: ["QUEUED_DEV", "IN_DEV", "DEV_TESTING", "DEV_FAILED"] },
+  { label: "评审中", values: ["QUEUED_REVIEW", "IN_REVIEW", "REVIEW_REJECTED"] },
+  { label: "PR 中", values: ["PR_SUBMITTED"] },
+  { label: "已完成", values: ["PR_MERGED", "PR_CLOSED", "ARCHIVED", "IGNORED"] },
+];
+
+const SORT_OPTIONS = [
+  { value: "-score", label: "评分 ↓" },
+  { value: "score", label: "评分 ↑" },
+  { value: "-created_at", label: "新到旧" },
+  { value: "created_at", label: "旧到新" },
+  { value: "-stars", label: "stars ↓" },
+];
+
+interface Filters {
+  statuses: string[];
+  q: string;
+  language: string;
+  minScore: string;
+  sort: string;
+  page: number;
+}
+
+const DEFAULT_FILTERS: Filters = {
+  statuses: [],
+  q: "",
+  language: "",
+  minScore: "",
+  sort: "-score",
+  page: 1,
+};
+
 export function IssuesList({ refreshKey }: { refreshKey?: number }) {
   const [data, setData] = useState<IssueListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
 
   const fetchIssues = useCallback(async () => {
     try {
-      const resp = await api.listIssues({ page: 1, page_size: 20 });
+      const resp = await api.listIssues({
+        page: filters.page,
+        page_size: 20,
+        status: filters.statuses.length > 0 ? filters.statuses : undefined,
+        q: filters.q.trim() || undefined,
+        language: filters.language.trim() || undefined,
+        min_score: filters.minScore ? Number(filters.minScore) : undefined,
+        sort: filters.sort,
+      });
       setData(resp);
       setError(null);
     } catch (err) {
@@ -39,7 +85,7 @@ export function IssuesList({ refreshKey }: { refreshKey?: number }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filters]);
 
   const replaceItem = useCallback((updated: IssueListItem) => {
     setData((prev) =>
@@ -58,30 +104,151 @@ export function IssuesList({ refreshKey }: { refreshKey?: number }) {
     return () => clearInterval(id);
   }, [fetchIssues, refreshKey]);
 
-  if (loading && !data) {
-    return <p className="text-sm text-muted-foreground">加载中...</p>;
-  }
-  if (error) {
-    return <p className="text-sm text-destructive">{error}</p>;
-  }
-  if (!data || data.total === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        还没有 Issue。在上方粘贴一个 GitHub URL 开始。
-      </p>
-    );
-  }
+  const togglePreset = (values: string[]) => {
+    setFilters((f) => {
+      const overlap = values.every((v) => f.statuses.includes(v));
+      const next = overlap
+        ? f.statuses.filter((v) => !values.includes(v))
+        : Array.from(new Set([...f.statuses, ...values]));
+      return { ...f, statuses: next, page: 1 };
+    });
+  };
+
+  const hasActiveFilter =
+    filters.statuses.length > 0 ||
+    !!filters.q ||
+    !!filters.language ||
+    !!filters.minScore;
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        共 {data.total} 条 · 第 {data.page} 页 / 每页 {data.page_size}
-      </p>
-      <ul className="space-y-3">
-        {data.items.map((item) => (
-          <IssueRow key={item.id} item={item} onDecided={replaceItem} />
-        ))}
-      </ul>
+    <div className="space-y-4">
+      <FilterBar
+        filters={filters}
+        setFilters={setFilters}
+        onTogglePreset={togglePreset}
+        onReset={() => setFilters(DEFAULT_FILTERS)}
+        hasActive={hasActiveFilter}
+      />
+      {loading && !data ? (
+        <p className="text-sm text-muted-foreground">加载中...</p>
+      ) : error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : !data || data.total === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {hasActiveFilter
+            ? "没有匹配的 Issue（点重置看全部）"
+            : "还没有 Issue。在上方粘贴一个 GitHub URL 开始。"}
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            共 {data.total} 条 · 第 {data.page} 页 / 每页 {data.page_size}
+          </p>
+          <ul className="space-y-3">
+            {data.items.map((item) => (
+              <IssueRow key={item.id} item={item} onDecided={replaceItem} />
+            ))}
+          </ul>
+          {data.total > data.page_size && (
+            <div className="flex items-center justify-center gap-3 pt-2 text-sm">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={data.page <= 1}
+                onClick={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
+              >
+                上一页
+              </Button>
+              <span className="text-muted-foreground">
+                {data.page} / {Math.ceil(data.total / data.page_size)}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={data.page * data.page_size >= data.total}
+                onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
+              >
+                下一页
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
+function FilterBar({
+  filters, setFilters, onTogglePreset, onReset, hasActive,
+}: {
+  filters: Filters;
+  setFilters: (f: (prev: Filters) => Filters) => void;
+  onTogglePreset: (values: string[]) => void;
+  onReset: () => void;
+  hasActive: boolean;
+}) {
+  return (
+    <div className="space-y-2 rounded border border-border bg-muted/20 p-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-muted-foreground">状态：</span>
+        {STATUS_PRESETS.map((p) => {
+          const active = p.values.every((v) => filters.statuses.includes(v));
+          return (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => onTogglePreset(p.values)}
+              className={
+                "rounded border px-2 py-1 " +
+                (active
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground")
+              }
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <input
+          type="text"
+          placeholder="标题搜索"
+          value={filters.q}
+          onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value, page: 1 }))}
+          className="rounded border border-border bg-background px-2 py-1 text-xs min-w-[160px]"
+        />
+        <input
+          type="text"
+          placeholder="语言（python / go / ...）"
+          value={filters.language}
+          onChange={(e) => setFilters((f) => ({ ...f, language: e.target.value, page: 1 }))}
+          className="rounded border border-border bg-background px-2 py-1 text-xs min-w-[140px]"
+        />
+        <input
+          type="number"
+          min={0} max={10} step={0.5}
+          placeholder="最低分"
+          value={filters.minScore}
+          onChange={(e) => setFilters((f) => ({ ...f, minScore: e.target.value, page: 1 }))}
+          className="rounded border border-border bg-background px-2 py-1 text-xs w-[88px]"
+        />
+        <select
+          value={filters.sort}
+          onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value, page: 1 }))}
+          className="rounded border border-border bg-background px-2 py-1 text-xs"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        {hasActive && (
+          <Button size="sm" variant="ghost" onClick={onReset}>
+            重置
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -99,14 +266,9 @@ function IssueRow({ item, onDecided }: IssueRowProps) {
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="flex-1 leading-snug">
-              <a
-                href={item.github_url}
-                target="_blank"
-                rel="noreferrer"
-                className="hover:underline"
-              >
+              <Link href={`/issues/${item.id}`} className="hover:underline">
                 {item.title}
-              </a>
+              </Link>
             </CardTitle>
             <StatusBadge status={item.status} />
           </div>
@@ -117,6 +279,14 @@ function IssueRow({ item, onDecided }: IssueRowProps) {
             )}
             <span>· ★ {item.repository.stars}</span>
             <span>· {item.source}</span>
+            <a
+              href={item.github_url}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto hover:underline"
+            >
+              GitHub ↗
+            </a>
           </div>
         </CardHeader>
         {ev && (

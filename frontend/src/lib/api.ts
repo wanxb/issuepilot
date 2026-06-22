@@ -7,6 +7,7 @@ import type {
   ApiErrorDetail,
   DecideAction,
   DevLogEntry,
+  IssueDetail,
   IssueListItem,
   IssueListResponse,
   ManualSubmitRequest,
@@ -52,12 +53,24 @@ export const api = {
     page?: number;
     page_size?: number;
     min_score?: number;
+    status?: string[];
+    language?: string;
+    repo?: string;
+    source?: string;
+    q?: string;
+    sort?: string;
   }): Promise<IssueListResponse> {
     const search = new URLSearchParams();
     if (params?.page) search.set("page", String(params.page));
     if (params?.page_size) search.set("page_size", String(params.page_size));
     if (params?.min_score !== undefined)
       search.set("min_score", String(params.min_score));
+    for (const s of params?.status ?? []) search.append("status", s);
+    if (params?.language) search.set("language", params.language);
+    if (params?.repo) search.set("repo", params.repo);
+    if (params?.source) search.set("source", params.source);
+    if (params?.q) search.set("q", params.q);
+    if (params?.sort) search.set("sort", params.sort);
     const qs = search.toString();
     return request<IssueListResponse>(
       `/api/v1/issues${qs ? `?${qs}` : ""}`,
@@ -69,6 +82,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     });
+  },
+
+  getIssueDetail(issueId: string): Promise<IssueDetail> {
+    return request<IssueDetail>(`/api/v1/issues/${issueId}/detail`);
   },
 
   decide(issueId: string, action: DecideAction): Promise<IssueListItem> {

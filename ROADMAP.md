@@ -200,15 +200,16 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] **上下文压缩**（2026-06-22）：交给 Claude Code CLI 内置 auto-compact，不自建。决策记录到 `docs/AGENT_RUNTIME.md::"Agent B 上下文压缩（2.3）"`。三道防线：`--max-turns 25` 硬上限 + CLI 自压缩 + 卡死检测主动 kill
 - [x] **Schema 校验失败重试**（2026-06-22，Agent A / C / RejectionClassifier 三处）：抽出 `app/agents/_schema_retry.py::call_with_schema_retry`；第 1 次 schema fail 时第 2 次 call 追加 correction hint（"your previous output failed: ... re-call tool"）；两次仍失败抛 SchemaValidationError，all_attempts 合并供 persist_attempts 一次入库。ToolNotCalledError 不重试（深层不合作，再调徒劳）。4 项 test_schema_retry.py 覆盖：valid 不 retry / invalid→valid retry 一次 / 两次 invalid 抛错 / tool_not_called 立刻判错
 
-### 里程碑 2.4 — 看板完善
+### 里程碑 2.4 — 看板完善 ✅ 已完成 2026-06-22
 
-- [ ] Issue 列表筛选 / 排序 / 搜索
-- [ ] Issue 详情页（评估报告全视图）
-- [ ] 开发进度步骤可视化（ANALYZE → PLAN → IMPLEMENT → TEST → COMMIT）
-- [ ] 历次开发 / 评审历史记录
-- [ ] PR 列表页（含 `final_outcome` 着色 + `rejection_reasons` 摘要面板）
-- [ ] **PR 失败复盘视图**：按 category × Agent B 归因 聚合，Top N 失败模式可点击下钻到原始 PR
-- [ ] 统计概览（各状态数量、今日新增、本周 fallback 触发率）
+- [x] **Issue 列表筛选 / 排序 / 搜索**：后端 `GET /api/v1/issues` 加 `q` 参数（title ILIKE）；前端 IssuesList 加状态分组按钮（待评估/待决策/开发中/评审中/PR中/已完成 6 组多选）+ 标题搜索 + 语言 + 最低分 + 排序下拉 + 分页（上/下一页）
+- [x] **Issue 详情页（/issues/[id]）**：后端 `GET /api/v1/issues/{id}/detail` 返回 issue + repo + evaluation + dev_tasks[] + review_tasks[] + pull_request + rejection_reasons[] 一次性完整 payload；前端 5 个 panel
+- [x] **开发进度步骤可视化（ANALYZE → PLAN → IMPLEMENT → TEST → COMMIT）**：详情页 `DevProgress` 组件按 dev_task.status 推断当前 phase，5 段进度条 emerald 标已完成、red 标失败
+- [x] **历次开发 / 评审历史记录**：详情页 `DevTaskRow` + `ReviewTaskRow` 列出所有 attempt，含 fallback / push / loop_iterations / 5 维评分小卡 / 退回意见 / 失败原因
+- [x] **PR 失败复盘视图**（dashboard 顶部 section）：`GET /api/v1/dashboard/pr-failures?days=N` 按 (category × agent_b_attribution) 聚合 + by_source / by_dimension / Top 10 失败模式 + Top 5 模式的样本 PR；前端 `PRFailuresPanel` 7d/30d/90d 切换 + 折叠展开样本
+- [x] **统计概览**（dashboard 顶部 section）：`GET /api/v1/dashboard/stats` 含各状态计数、今日新增、本周 PR_MERGED/PR_CLOSED、本周 LLM 调用 / 成本 / fallback 率 / 失败率；前端 `StatsOverview` 6 状态分组卡 + 4 统计卡
+- [x] PR 列表页：未单独建页（合并进 PR 失败复盘视图 + 详情页 PR panel；专门 PR 视图后续需要时再加）
+- [x] 3 项 test_dashboard_routes.py（路由注册 + endpoint shape）；总 unit suite 217 passed
 
 ### 里程碑 2.5 — 多厂商模型支持 ✅ 已完成 2026-06-22
 
