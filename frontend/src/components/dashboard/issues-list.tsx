@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,11 +55,49 @@ const DEFAULT_FILTERS: Filters = {
   page: 1,
 };
 
+// 持久化键：导航到详情页再回来时复用 filters + 滚动位置
+const FILTERS_STORAGE_KEY = "issuepilot:issues-list:filters";
+const SCROLL_STORAGE_KEY = "issuepilot:issues-list:scrollY";
+
+function loadFiltersFromStorage(): Filters {
+  if (typeof window === "undefined") return DEFAULT_FILTERS;
+  try {
+    const raw = window.sessionStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw) return DEFAULT_FILTERS;
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_FILTERS, ...parsed };
+  } catch {
+    return DEFAULT_FILTERS;
+  }
+}
+
+function saveFiltersToStorage(f: Filters): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(f));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 export function IssuesList({ refreshKey }: { refreshKey?: number }) {
   const [data, setData] = useState<IssueListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  // 初次 mount 时从 sessionStorage 恢复（详情页返回时不丢上下文）
+  const [filters, setFiltersInternal] = useState<Filters>(() => loadFiltersFromStorage());
+
+  // 包装 setFilters 让每次更改自动落盘
+  const setFilters = useCallback(
+    (updater: ((prev: Filters) => Filters) | Filters) => {
+      setFiltersInternal((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        saveFiltersToStorage(next);
+        return next;
+      });
+    },
+    [],
+  );
 
   const fetchIssues = useCallback(async () => {
     try {
@@ -103,6 +141,27 @@ export function IssuesList({ refreshKey }: { refreshKey?: number }) {
     const id = setInterval(() => void fetchIssues(), POLL_MS);
     return () => clearInterval(id);
   }, [fetchIssues, refreshKey]);
+
+  // 从详情页返回时恢复滚动位置（数据 mount 完后再 scroll，避免高度未撑开）
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    if (!data || typeof window === "undefined") return;
+    try {
+      const raw = window.sessionStorage.getItem(SCROLL_STORAGE_KEY);
+      if (raw) {
+        const y = parseInt(raw, 10);
+        if (!Number.isNaN(y) && y > 0) {
+          // 等下一帧让浏览器排完布局
+          requestAnimationFrame(() => window.scrollTo(0, y));
+        }
+        window.sessionStorage.removeItem(SCROLL_STORAGE_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+    restoredRef.current = true;
+  }, [data]);
 
   const togglePreset = (values: string[]) => {
     setFilters((f) => {
@@ -266,7 +325,23 @@ function IssueRow({ item, onDecided }: IssueRowProps) {
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="flex-1 leading-snug">
-              <Link href={`/issues/${item.id}`} className="hover:underline">
+              <Link
+                href={`/issues/${item.id}`}
+                onClick={() => {
+                  // 4.x: 详情页返回时按这个位置 scroll 回来
+                  if (typeof window !== "undefined") {
+                    try {
+                      window.sessionStorage.setItem(
+                        "issuepilot:issues-list:scrollY",
+                        String(window.scrollY),
+                      );
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                }}
+                className="hover:underline"
+              >
                 {item.title}
               </Link>
             </CardTitle>

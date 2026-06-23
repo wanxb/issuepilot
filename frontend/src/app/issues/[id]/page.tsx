@@ -1,16 +1,18 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ApiError, api } from "@/lib/api";
 import type {
+  DecideAction,
   IssueDetail,
   IssueDetailDevTask,
   IssueDetailRejection,
   IssueDetailReviewTask,
+  PRClosedAction,
 } from "@/lib/types";
 
 const DEV_STEPS = ["ANALYZE", "PLAN", "IMPLEMENT", "TEST", "COMMIT"];
@@ -30,9 +32,12 @@ function devStepIndex(status: string): number {
 
 export default function IssueDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params?.id;
   const [data, setData] = useState<IssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchOnce = useCallback(async () => {
     if (!id) return;
@@ -56,6 +61,61 @@ export default function IssueDetailPage() {
     return () => clearInterval(t);
   }, [fetchOnce]);
 
+  const goBack = useCallback(() => {
+    // 若有历史记录就回退（保持列表滚动位置 + filters），否则直接去首页
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
+  }, [router]);
+
+  const doDecide = useCallback(
+    async (action: DecideAction) => {
+      if (!id) return;
+      setActing(action);
+      setActionError(null);
+      try {
+        await api.decide(id, action);
+        await fetchOnce();
+      } catch (err) {
+        setActionError(
+          err instanceof ApiError
+            ? `[${err.detail.code}] ${err.detail.message}`
+            : err instanceof Error
+              ? err.message
+              : "操作失败",
+        );
+      } finally {
+        setActing(null);
+      }
+    },
+    [id, fetchOnce],
+  );
+
+  const doPRClosedDecide = useCallback(
+    async (action: PRClosedAction) => {
+      if (!id) return;
+      setActing(action);
+      setActionError(null);
+      try {
+        await api.prClosedDecide(id, action);
+        await fetchOnce();
+      } catch (err) {
+        setActionError(
+          err instanceof ApiError
+            ? `[${err.detail.code}] ${err.detail.message}`
+            : err instanceof Error
+              ? err.message
+              : "操作失败",
+        );
+      } finally {
+        setActing(null);
+      }
+    },
+    [id, fetchOnce],
+  );
+
   if (error) {
     return <main className="container py-8"><p className="text-destructive">{error}</p></main>;
   }
@@ -68,11 +128,60 @@ export default function IssueDetailPage() {
 
   return (
     <main className="container py-8 space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/" className="text-sm text-muted-foreground hover:underline">
+      <div className="flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={goBack}
+          className="text-sm text-muted-foreground hover:underline"
+        >
           ← 返回看板
-        </Link>
+        </button>
+        {/* 详情页操作按钮：按状态显示 */}
+        <div className="flex items-center gap-2">
+          {data.status === "PENDING_DECISION" && (
+            <>
+              <Button
+                size="sm"
+                onClick={() => void doDecide("start_dev")}
+                disabled={acting !== null}
+              >
+                {acting === "start_dev" ? "提交中..." : "加入开发"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void doDecide("ignore")}
+                disabled={acting !== null}
+              >
+                {acting === "ignore" ? "提交中..." : "忽略"}
+              </Button>
+            </>
+          )}
+          {data.status === "PR_CLOSED" && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void doPRClosedDecide("restart_dev")}
+                disabled={acting !== null}
+              >
+                {acting === "restart_dev" ? "提交中..." : "重新开发"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void doPRClosedDecide("archive")}
+                disabled={acting !== null}
+              >
+                {acting === "archive" ? "提交中..." : "归档"}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
+      {actionError && (
+        <p className="text-sm text-destructive">{actionError}</p>
+      )}
 
       {/* Header */}
       <header className="space-y-2">
