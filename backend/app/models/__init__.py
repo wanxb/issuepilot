@@ -7,6 +7,7 @@ from app.models.crawl_job import CrawlJob
 from app.models.crawl_target import CrawlTarget
 from app.models.dev_log import DevLog
 from app.models.dev_task import DevTask
+from app.models.eval_sample import EvalSample
 from app.models.evaluation import Evaluation
 from app.models.issue import Issue
 from app.models.llm_call_log import LLMCallLog
@@ -22,6 +23,7 @@ __all__ = [
     "CrawlTarget",
     "DevLog",
     "DevTask",
+    "EvalSample",
     "Evaluation",
     "Issue",
     "LLMCallLog",

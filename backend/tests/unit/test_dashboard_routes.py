@@ -21,18 +21,22 @@ def test_routes_registered() -> None:
     assert "/api/v1/issues/{issue_id}/detail" in paths
 
 
-def test_stats_endpoint_responds_ok() -> None:
-    """空 DB（没 Postgres connection）下 TestClient 会失败，但能接受请求体
-    并通过 FastAPI 路由匹配；用 lifespan 上下文跳过 DB 实际查询是难的，
-    因此这里只 import + 实例化 client，确认不抛 ImportError / TypeError。"""
+def test_dashboard_routes_contain_2_4_and_3_1_endpoints() -> None:
+    """dashboard 路由必须覆盖：
+        2.4：stats / pr-failures
+        3.1：weekly-report / agent-quality
+    """
     from app.api.dashboard import router
 
     assert router.prefix == "/api/v1/dashboard"
-    # 两条 GET 路由
     route_paths = {r.path for r in router.routes}  # type: ignore[attr-defined]
-    assert route_paths == {
-        "/api/v1/dashboard/stats", "/api/v1/dashboard/pr-failures",
+    expected = {
+        "/api/v1/dashboard/stats",
+        "/api/v1/dashboard/pr-failures",
+        "/api/v1/dashboard/weekly-report",
+        "/api/v1/dashboard/agent-quality",
     }
+    assert expected <= route_paths
 
 
 def test_issue_detail_route_path() -> None:

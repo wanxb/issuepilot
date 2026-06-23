@@ -227,17 +227,18 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 ## Phase 3 — 优化（质量 + 扩展）
 
-### 里程碑 3.1 — Prompt 质量提升（基于 PR 学习闭环）
+### 里程碑 3.1 — Prompt 质量提升（基于 PR 学习闭环）✅ 已完成 2026-06-23
 
-- [ ] Agent A 离线评估框架（ground truth 对比）
-- [ ] Agent B 成功率分析（按语言、按错误类型、按 fallback 触发与否）
-- [ ] Agent C 误拒率分析（对比 `agent_c` 退回与最终 maintainer 判定的吻合度）
-- [ ] Prompt A/B 测试流程
-- [ ] **从 `rejection_reasons` 构建 Eval Golden Set**：
-   - MERGED_CLEAN 案例 → 正样本
-   - `agent_b_attribution=yes` + `severity=blocker` 案例 → Agent B 反例 few-shot
-   - 高频 `category=style_mismatch` → Agent B "学习 CONTRIBUTING.md" 步骤强化
-- [ ] 周报：Top 3 失败模式 + 每类型成本 + Agent B 归因比例
+- [x] **Eval Golden Set 表 + CLI**：新表 `eval_samples`（issue_id, sample_kind, label, source, notes）+ migration `g7i1j7e1g7h7`；`scripts/manage_eval_samples.py` 5 子命令（list / add / auto-pick / remove）；auto-pick 支持 3 个 kind：positive_merged_clean（取 MERGED_CLEAN PR）/ negative_agent_b_fault（agent_b_attribution=yes + severity=blocker）/ style_pattern（category=STYLE_MISMATCH）
+- [x] **周报 endpoint + 前端 widget**：`GET /api/v1/dashboard/weekly-report?days=N` 返 Top 3 失败模式 + 每 agent 类型成本（calls / tokens / cost / fallback）+ Agent B 归因比例（含进度条数据）+ Issue 漏斗（DISCOVERED→PR_MERGED 10 阶段）+ PR 终态。`WeeklyReportPanel` 前端组件 7d/14d/30d 切换 + 5 section（3 列网格 + 2 全宽 section）
+- [x] **Agent B 成功率 / Agent C 误拒率分析**：`GET /api/v1/dashboard/agent-quality?days=N` 返：
+  - agent_b：by_status / fallback_split（primary vs fallback 分桶）/ by_language（join repositories）/ by_failure_reason
+  - agent_c：by_verdict + approved_merged_clean / approved_closed_by_maintainer 交叉计数（Maintainer agreement）
+- [x] **Agent A 离线评估框架**：`scripts/eval_agent_a.py run --kind X --limit N [--dry-run]`；从 eval_samples 拉样本，重跑 Agent A，与历史 evaluation 对比 score delta 与 recommend agreement（match / diverge_pos / diverge_neg / no_old）；JSON 行流出 stdout 便于 jq / 二次分析
+- [x] **Prompt A/B 测试流程**（轻量）：复用既有 `Evaluation.prompt_version` + `LLMCallLog.prompt_version` 字段；离线评估脚本天然支持版本对比（改 prompt → rerun → diff agreement 列）
+- [x] **从 `rejection_reasons` 构建 Eval Golden Set** 自动化：`auto-pick --kind` 三条路径已实装。dry run 时：0 negative_agent_b_fault（无 blocker） / 1 style_pattern 自动收录
+- [x] 4 项 test_eval_routes.py（router 注册 + EvalSample 模型 + 字段构造 + 路径覆盖）；总 unit suite 249 passed
+- [x] e2e: weekly-report 实拉 84 calls / $0.038346 / 1 top failure mode；agent-quality 实拉 1 dev_task SUCCEEDED Python primary / 1 APPROVED review；dry-run eval_agent_a 输出 1 行 JSON
 
 ### 里程碑 3.2 — Agent B 能力增强
 

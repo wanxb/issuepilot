@@ -9,6 +9,7 @@ import { IssuesList } from "@/components/dashboard/issues-list";
 import { PRFailuresPanel } from "@/components/dashboard/pr-failures-panel";
 import { StatsOverview } from "@/components/dashboard/stats-overview";
 import { UrlInputBar } from "@/components/dashboard/url-input-bar";
+import { WeeklyReportPanel } from "@/components/dashboard/weekly-report-panel";
 
 export default function HomePage() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -43,6 +44,11 @@ export default function HomePage() {
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <h2 className="mb-4 text-base font-semibold">抓取日志</h2>
         <CrawlJobsLog />
+      </section>
+
+      <section className="rounded-lg border bg-card p-6 shadow-sm">
+        <h2 className="mb-4 text-base font-semibold">周报（学习闭环指标）</h2>
+        <WeeklyReportPanel />
       </section>
 
       <section className="rounded-lg border bg-card p-6 shadow-sm">

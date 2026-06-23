@@ -12,18 +12,23 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_session
+from app.models.dev_task import DevTask
 from app.models.enums import (
+    DevTaskStatus,
     IssueStatus,
     PRFinalOutcome,
     RejectionCategory,
     RejectionDimension,
     RejectionSource,
+    ReviewVerdict,
 )
 from app.models.issue import Issue
 from app.models.llm_call_log import LLMCallLog
 from app.models.pr_outcome import PROutcome
 from app.models.pull_request import PullRequest
 from app.models.rejection_reason import RejectionReason
+from app.models.repository import Repository
+from app.models.review_task import ReviewTask
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -220,4 +225,251 @@ async def pr_failures(
         "by_dimension": by_dimension,
         "by_source": by_source,
         "top_failure_modes": top_modes[:10],
+    }
+
+
+# ---------------------------------------------------------------------------
+# 3.1: 周报（PR 学习闭环聚合）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/weekly-report")
+async def weekly_report(
+    days: int = Query(default=7, ge=1, le=90),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """聚合最近 N 天的关键质量指标，前端 WeeklyReportPanel 使用。
+
+    含：
+      - top_failure_modes Top 3 (复用 pr_failures 逻辑但裁到 3)
+      - cost_by_agent 各 agent 类型成本
+      - attribution_ratio Agent B 归因比例
+      - issue_funnel 漏斗（DISCOVERED → PR_MERGED）
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # 1) Top 3 失败模式（仅展示 category × attribution 计数，不带 samples）
+    top_stmt = (
+        select(
+            RejectionReason.category,
+            RejectionReason.agent_b_attribution,
+            func.count().label("n"),
+        )
+        .where(RejectionReason.created_at >= since)
+        .group_by(RejectionReason.category, RejectionReason.agent_b_attribution)
+        .order_by(func.count().desc())
+        .limit(3)
+    )
+    top_rows = (await session.execute(top_stmt)).all()
+    top_failure_modes = [
+        {
+            "category": r.category.value if r.category else "other",
+            "agent_b_attribution": r.agent_b_attribution.value
+            if r.agent_b_attribution else "unclear",
+            "count": int(r.n),
+        }
+        for r in top_rows
+    ]
+
+    # 2) cost_by_agent
+    cost_stmt = (
+        select(
+            LLMCallLog.agent_kind,
+            func.count().label("calls"),
+            func.sum(LLMCallLog.cost_usd).label("cost"),
+            func.sum(LLMCallLog.input_tokens).label("in_tok"),
+            func.sum(LLMCallLog.output_tokens).label("out_tok"),
+            func.count().filter(LLMCallLog.is_fallback.is_(True)).label("fb"),
+        )
+        .where(LLMCallLog.created_at >= since)
+        .group_by(LLMCallLog.agent_kind)
+        .order_by(func.sum(LLMCallLog.cost_usd).desc())
+    )
+    cost_rows = (await session.execute(cost_stmt)).all()
+    cost_by_agent = [
+        {
+            "agent_kind": r.agent_kind.value if r.agent_kind else None,
+            "calls": int(r.calls or 0),
+            "cost_usd": float(r.cost or 0),
+            "input_tokens": int(r.in_tok or 0),
+            "output_tokens": int(r.out_tok or 0),
+            "fallback_calls": int(r.fb or 0),
+        }
+        for r in cost_rows
+    ]
+
+    # 3) Attribution ratio
+    attr_stmt = (
+        select(RejectionReason.agent_b_attribution, func.count())
+        .where(RejectionReason.created_at >= since)
+        .group_by(RejectionReason.agent_b_attribution)
+    )
+    attr_rows = (await session.execute(attr_stmt)).all()
+    attr_total = sum(int(r[1]) for r in attr_rows) or 1
+    attribution_ratio = {
+        (r[0].value if r[0] else "unclear"): {
+            "count": int(r[1]),
+            "ratio": int(r[1]) / attr_total,
+        }
+        for r in attr_rows
+    }
+
+    # 4) Issue funnel
+    funnel_stmt = (
+        select(Issue.status, func.count())
+        .group_by(Issue.status)
+    )
+    funnel_rows = (await session.execute(funnel_stmt)).all()
+    issue_funnel = {r[0].value: int(r[1]) for r in funnel_rows}
+
+    # 5) PR 终态
+    pr_stmt = (
+        select(PullRequest.final_outcome, func.count())
+        .where(PullRequest.updated_at >= since)
+        .group_by(PullRequest.final_outcome)
+    )
+    pr_rows = (await session.execute(pr_stmt)).all()
+    pr_outcomes = {
+        (r[0].value if r[0] else "null"): int(r[1]) for r in pr_rows
+    }
+
+    total_cost = sum(it["cost_usd"] for it in cost_by_agent)
+    total_calls = sum(it["calls"] for it in cost_by_agent)
+    return {
+        "since": since.isoformat(),
+        "days": days,
+        "top_failure_modes": top_failure_modes,
+        "cost_by_agent": cost_by_agent,
+        "totals": {
+            "calls": total_calls,
+            "cost_usd": total_cost,
+        },
+        "attribution_ratio": attribution_ratio,
+        "issue_funnel": issue_funnel,
+        "pr_outcomes": pr_outcomes,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 3.1: Agent B 成功率 / Agent C 误拒率分析
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent-quality")
+async def agent_quality(
+    days: int = Query(default=30, ge=1, le=365),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Agent B / Agent C 质量指标聚合。"""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # ---- Agent B 成功率（按 dev_task.status × use_fallback_provider × language）
+    dev_by_status_stmt = (
+        select(DevTask.status, func.count())
+        .where(DevTask.created_at >= since)
+        .group_by(DevTask.status)
+    )
+    dev_status_rows = (await session.execute(dev_by_status_stmt)).all()
+    dev_by_status = {r[0].value: int(r[1]) for r in dev_status_rows}
+    dev_total = sum(dev_by_status.values()) or 1
+    dev_succeeded = dev_by_status.get(DevTaskStatus.SUCCEEDED.value, 0)
+    dev_success_rate = dev_succeeded / dev_total
+
+    # 按 fallback
+    fb_stmt = (
+        select(
+            DevTask.use_fallback_provider,
+            DevTask.status,
+            func.count(),
+        )
+        .where(DevTask.created_at >= since)
+        .group_by(DevTask.use_fallback_provider, DevTask.status)
+    )
+    fb_rows = (await session.execute(fb_stmt)).all()
+    fallback_split: dict[str, dict[str, int]] = {"primary": {}, "fallback": {}}
+    for r in fb_rows:
+        bucket = "fallback" if r[0] else "primary"
+        fallback_split[bucket][r[1].value] = int(r[2])
+
+    # 按语言（join repositories）
+    lang_stmt = (
+        select(
+            Repository.primary_language,
+            DevTask.status,
+            func.count(),
+        )
+        .join(Issue, Issue.id == DevTask.issue_id)
+        .join(Repository, Repository.id == Issue.repository_id)
+        .where(DevTask.created_at >= since)
+        .group_by(Repository.primary_language, DevTask.status)
+    )
+    lang_rows = (await session.execute(lang_stmt)).all()
+    by_language: dict[str, dict[str, int]] = {}
+    for r in lang_rows:
+        lang = r[0] or "unknown"
+        by_language.setdefault(lang, {})[r[1].value] = int(r[2])
+
+    # 按 failure_reason
+    fr_stmt = (
+        select(DevTask.failure_reason, func.count())
+        .where(DevTask.created_at >= since)
+        .where(DevTask.failure_reason.isnot(None))
+        .group_by(DevTask.failure_reason)
+        .order_by(func.count().desc())
+    )
+    fr_rows = (await session.execute(fr_stmt)).all()
+    by_failure_reason = {(r[0] or "unknown"): int(r[1]) for r in fr_rows}
+
+    # ---- Agent C 误拒率（review_task REJECTED 与 maintainer 终态对比）
+    # 简化版：count review REJECTED 总数 vs PR_CLOSED_BY_MAINTAINER（同 issue）
+    review_stmt = (
+        select(ReviewTask.verdict, func.count())
+        .where(ReviewTask.created_at >= since)
+        .where(ReviewTask.verdict.isnot(None))
+        .group_by(ReviewTask.verdict)
+    )
+    review_rows = (await session.execute(review_stmt)).all()
+    review_by_verdict = {
+        (r[0].value if r[0] else "unknown"): int(r[1]) for r in review_rows
+    }
+
+    # Agent C APPROVED → maintainer MERGED_CLEAN：吻合
+    # Agent C APPROVED → maintainer CLOSED_BY_MAINTAINER：误判（漏拒）
+    # Agent C REJECTED → 没 PR / 经 retry 后 merged：误拒（待人工 review）
+    approved_merged = (await session.execute(
+        select(func.count()).select_from(ReviewTask)
+        .join(PullRequest, PullRequest.review_task_id == ReviewTask.id)
+        .where(ReviewTask.verdict == ReviewVerdict.APPROVED)
+        .where(PullRequest.final_outcome == PRFinalOutcome.MERGED_CLEAN)
+        .where(ReviewTask.created_at >= since)
+    )).scalar_one()
+    approved_closed = (await session.execute(
+        select(func.count()).select_from(ReviewTask)
+        .join(PullRequest, PullRequest.review_task_id == ReviewTask.id)
+        .where(ReviewTask.verdict == ReviewVerdict.APPROVED)
+        .where(PullRequest.final_outcome == PRFinalOutcome.CLOSED_BY_MAINTAINER)
+        .where(ReviewTask.created_at >= since)
+    )).scalar_one()
+
+    return {
+        "since": since.isoformat(),
+        "days": days,
+        "agent_b": {
+            "total": dev_total,
+            "success_rate": dev_success_rate,
+            "by_status": dev_by_status,
+            "fallback_split": fallback_split,
+            "by_language": by_language,
+            "by_failure_reason": by_failure_reason,
+        },
+        "agent_c": {
+            "by_verdict": review_by_verdict,
+            "approved_merged_clean": int(approved_merged or 0),
+            "approved_closed_by_maintainer": int(approved_closed or 0),
+            "maintainer_agreement_note": (
+                "approved_merged_clean / (approved_merged_clean + "
+                "approved_closed_by_maintainer) 越高越好；当前 PR 量过低"
+                "(<10) 时数字仅供参考"
+            ),
+        },
     }
