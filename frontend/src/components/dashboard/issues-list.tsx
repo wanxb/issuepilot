@@ -84,8 +84,21 @@ export function IssuesList({ refreshKey }: { refreshKey?: number }) {
   const [data, setData] = useState<IssueListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // 初次 mount 时从 sessionStorage 恢复（详情页返回时不丢上下文）
-  const [filters, setFiltersInternal] = useState<Filters>(() => loadFiltersFromStorage());
+  // SSR 阶段一律用 DEFAULT_FILTERS 避免 hydration mismatch；mount 后 useEffect 从
+  // sessionStorage 回填用户上次的 filters（详情页返回时不丢上下文）。
+  const [filters, setFiltersInternal] = useState<Filters>(DEFAULT_FILTERS);
+  const filtersHydratedRef = useRef(false);
+
+  // 首次 mount 从 sessionStorage 恢复一次
+  useEffect(() => {
+    if (filtersHydratedRef.current) return;
+    filtersHydratedRef.current = true;
+    const saved = loadFiltersFromStorage();
+    // 浅比较默认值，避免无意义 setState
+    if (JSON.stringify(saved) !== JSON.stringify(DEFAULT_FILTERS)) {
+      setFiltersInternal(saved);
+    }
+  }, []);
 
   // 包装 setFilters 让每次更改自动落盘
   const setFilters = useCallback(
