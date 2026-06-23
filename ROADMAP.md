@@ -225,6 +225,25 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 ---
 
+## Phase 4 — 抓取算法升级（按领域定向）
+
+### 里程碑 4.1 — Domain 白名单（AI Agent / LLM / 机器人）✅ 已完成 2026-06-23
+
+- [x] **3 个领域 registry**：`app/services/crawl_domain.py::DOMAIN_REGISTRY`
+  - `ai_agent`：MCP / Agent 框架 / 多 agent / 工具调用 / LangChain/LangGraph/AutoGen 等 25 个 topics + 关键词正则
+  - `llm`：LLM / RAG / fine-tune / embedding / vector DB / 主流模型厂商 30 个 topics + 关键词正则
+  - `robotics`：ROS/ROS2 / 自动驾驶 / SLAM / 具身智能 / humanoid / 强化学习 25 个 topics + 关键词正则
+- [x] **match_repo 双重命中**：topic 命中（高置信度）优先；description/name keyword regex 兜底；`signal` 字段返回是哪条规则触发
+- [x] **GitHub Search API source**（`github_search`）：用 `_FLAGSHIP_TOPICS`（每 domain 4 个旗舰 topic）单独 query + 合并去重；规避 GitHub Search 的"qualifier 之间不支持 OR"和"5 OR 上限"限制；qualifiers 强制 `stars:>=N archived:false is:public pushed:>D`
+- [x] **CrawlerService.from_target 后置过滤**：`spec.domains` 非空时，每个 repo fetch 后调 match_repo，未命中 → `outcome.failures["off_topic:..."]` 跳过 + log
+- [x] **历史数据清洗**：旧 trending-python-daily 留下的 159 个 DISCOVERED → match 后 54 OFF-TOPIC 直接 ARCHIVED / 105 in-scope 重派 analyze_issue
+- [x] **新 in-domain target seed**：`ai-agent-llm-search`（domains: ai_agent+llm, sort:stars, min_stars:500, pushed_within_days:90）+ `robotics-search`（domains: robotics, min_stars:300, pushed_within_days:120），cron 05:00/05:15 UTC
+- [x] **CLI 支持新 source**：scripts/manage_crawl_targets.py choices 加 github_search
+- [x] **23 项单测**：domain registry 边界 + match topic/keyword/scope + validate_domains + build_search_query + existing test_crawl_sources 兼容更新；总 unit suite 353 passed
+- [x] **质量飞跃验证**：新 search 命中 elizaOS/eliza, google/adk-python, google-gemini/gemini-cli, n8n-io/n8n, bytedance/deer-flow, NousResearch/hermes-agent 等真高质量 in-domain 仓库；evaluation top-10 全是 8.0+ 真实 bug/feature（hermes auth / gateway agent cache / model picker / SSH backend 等）
+
+---
+
 ## Phase 3 — 优化（质量 + 扩展）
 
 ### 里程碑 3.1 — Prompt 质量提升（基于 PR 学习闭环）✅ 已完成 2026-06-23

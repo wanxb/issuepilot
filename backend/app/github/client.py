@@ -110,6 +110,43 @@ class GitHubClient:
             )
         return GHIssue.model_validate(data)
 
+    async def search_repositories(
+        self,
+        *,
+        q: str,
+        sort: str = "stars",
+        order: str = "desc",
+        per_page: int = 30,
+        max_results: int = 30,
+    ) -> list[dict]:
+        """GitHub Search API：/search/repositories?q=...&sort=...
+
+        返回 GitHub 原始 repo item 列表（含 owner.login, name, full_name,
+        stargazers_count, pushed_at, archived, disabled, topics, ...）。
+
+        注意限流：unauthenticated 60/hr，authenticated 5000/hr。Search 单独
+        有 30 req/min 的 secondary rate limit。
+        """
+        items: list[dict] = []
+        page = 1
+        per_page = min(100, max(1, per_page))
+        while len(items) < max_results:
+            data = await self._get(
+                "/search/repositories",
+                params={
+                    "q": q, "sort": sort, "order": order,
+                    "per_page": per_page, "page": page,
+                },
+            )
+            chunk = (data or {}).get("items") or []
+            if not chunk:
+                break
+            items.extend(chunk)
+            if len(chunk) < per_page:
+                break
+            page += 1
+        return items[:max_results]
+
     async def list_open_issues(
         self,
         owner: str,

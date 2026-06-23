@@ -249,6 +249,10 @@ class CrawlerService:
         bl = BlacklistService(self._s)
         repo_bl = await bl.list_enabled(entity_type="repo")
 
+        # 4.x: 领域白名单（spec.domains 非空时启用后置过滤）
+        accepted_domains: list[str] = spec.get("domains") or []
+        domain_enabled = bool(accepted_domains)
+
         for full_name in repo_full_names:
             try:
                 owner, name = full_name.split("/", 1)
@@ -274,6 +278,27 @@ class CrawlerService:
                     f"rate_limited(retry_after={e.retry_after_seconds})"
                 )
                 break
+
+            # 4.x: 领域白名单后置过滤
+            if domain_enabled:
+                from app.services.crawl_domain import match_repo
+                dm = match_repo(
+                    name=gh_repo.name,
+                    description=gh_repo.description,
+                    topics=getattr(gh_repo, "topics", None) or [],
+                    accepted_domains=accepted_domains,
+                )
+                if dm.matched_domain is None:
+                    outcome.failures[full_name] = (
+                        f"off_topic(not in {accepted_domains})"
+                    )
+                    outcome.repos_failed += 1
+                    continue
+                log.info(
+                    "crawler.domain_matched",
+                    repo=full_name,
+                    domain=dm.matched_domain, signal=dm.signal,
+                )
 
             try:
                 repo = await self._upsert_repo(gh_repo)

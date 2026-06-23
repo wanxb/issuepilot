@@ -172,7 +172,7 @@ def main() -> None:
     a = sub.add_parser("add", help="create a new crawl_target")
     a.add_argument("--name", required=True)
     a.add_argument("--source", required=True,
-                   choices=("github_trending", "explicit_repos"))
+                   choices=("github_trending", "github_search", "explicit_repos"))
     a.add_argument("--spec", required=True,
                    help='JSON spec, e.g. \'{"language":"python","since":"daily"}\'')
     a.add_argument("--cron", required=True,
