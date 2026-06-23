@@ -162,14 +162,18 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 ## Phase 2 — 完善（稳定性 + 可观测性）
 
-### 里程碑 2.1 — 多语言沙箱
+### 里程碑 2.1 — 多语言沙箱 ✅ 已完成 2026-06-23
 
-- [ ] agent-sandbox-node（JavaScript/TypeScript）
-- [ ] agent-sandbox-go
-- [ ] agent-sandbox-rust
-- [ ] agent-sandbox-java
-- [ ] 语言自动检测（GitHub API languages 字段）
-- [ ] 共享依赖缓存 volume（npm/pip/go mod）
+- [x] **重构 sandbox/shared/**：entrypoint.sh + mcp_report_server.py 抽到公共目录；5 个语言 Dockerfile 都 `COPY shared/...`，build context 改 `sandbox/`，scripts/build_sandbox_images.sh 一键构建
+- [x] **agent-sandbox-node**（JavaScript/TypeScript）：node:20-bookworm-slim 基底 + Claude Code CLI + pnpm/yarn + Python venv (MCP server)；缓存 /cache/{npm,pnpm,yarn}
+- [x] **agent-sandbox-go**：golang:1.23-bookworm + Node20 + Python venv；缓存 GOPATH/GOMODCACHE/GOCACHE 全分离
+- [x] **agent-sandbox-rust**：rust:1.83-bookworm + Node20 + Python venv；缓存 CARGO_HOME/RUSTUP_HOME/CARGO_TARGET_DIR；额外装 pkg-config + libssl-dev 支持 openssl crate
+- [x] **agent-sandbox-java**：eclipse-temurin:21-jdk + Maven (apt) + Gradle 8.10.2 (官方 zip) + Node20 + Python venv；缓存 MAVEN_OPTS/GRADLE_USER_HOME
+- [x] **语言自动检测（GitHub API languages 字段）**：`app/sandbox/language.py::resolve_sandbox_lang` 映射 GitHub primary_language（JS/TS/Vue/Svelte→node；Go→go；Rust→rust；Java/Kotlin/Scala/Groovy→java；Python/Cython→python；其他→python fallback）；`sandbox_image_for_language` 双重 fallback（镜像不存在或检查抛异常 → python）
+- [x] **共享依赖缓存 volume**（npm/pip/go mod/cargo/maven）：每个 Dockerfile 在 /cache/ 下创建对应子目录 + 设环境变量；运行时由 dev_worker 容器挂载（后续可配置 host volume 跨任务复用）
+- [x] dev_worker._setup_phase 接入 `sandbox_image_for_language`（替代原 lower() + image_exists 内联逻辑）
+- [x] 28 项 test_sandbox_language.py（12 语言映射 + 5 image 函数边界 + 5 supported 集合校验 + 6 其他边界）；总 unit suite 245 passed
+- [x] **未实地构建镜像**：Docker Desktop 本日不可用；构建路径已在 scripts/build_sandbox_images.sh 中固化，下次 docker 可用时 `bash scripts/build_sandbox_images.sh` 一键产出所有 5 镜像。dev_worker 在缺镜像时自动回落 python，不阻塞 Phase 1+2.3 已验证的功能
 
 ### 里程碑 2.2 — 抓取配置管理 ✅ 已完成 2026-06-22
 

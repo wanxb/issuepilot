@@ -195,12 +195,14 @@ async def _setup_phase(
         full_prompt = f"{SYSTEM_PROMPT}\n\n{build_prompt(agent_input)}"
         prompt_b64 = base64.b64encode(full_prompt.encode("utf-8")).decode("ascii")
 
-        # 选择沙箱镜像
-        lang = (repo.primary_language or "python").lower()
-        image = f"{settings.sandbox_image_prefix}-{lang}:latest"
-        if not _sandbox.image_exists(image):
-            image = f"{settings.sandbox_image_prefix}-python:latest"
-            log.info("dev_worker.image_fallback", lang=lang, using=image)
+        # 2.1: 选择沙箱镜像（语言映射 + 镜像存在性双重 fallback）
+        from app.sandbox.language import sandbox_image_for_language
+
+        image, lang = sandbox_image_for_language(
+            image_prefix=settings.sandbox_image_prefix,
+            primary_language=repo.primary_language,
+            image_exists_check=_sandbox.image_exists,
+        )
 
         # 构造容器 env
         token_val = settings.github_token.get_secret_value() if settings.github_token else ""
