@@ -227,6 +227,17 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 ## Phase 4 — 抓取算法升级（按领域定向）
 
+### 里程碑 4.2 — 同 provider 多 model 轮换（穷尽再换厂商）✅ 已完成 2026-06-23
+
+- [x] **FallbackLLMClient 接受 primary_chain**：`__init__` 同时支持 `primary: LLMClient`（向后兼容）和 `primary: list[LLMClient]`（新）；`primary_chain` 属性始终是 list 形式
+- [x] **call() 三段编排**：①按 chain 顺序逐 model；②每 model 内部按 RetryConfig 重试；③该 model 全部 retry 用完 → log `llm.model_rotation` → 切下一个 model；④整条 chain 用完 → log `llm.fallback_switching` → 跨 provider fallback；⑤永久错误（401/400/422）立刻 raise，不轮换不 fallback
+- [x] **attempt_number 全局递增**：跨 chain + fallback 严格单调，避免落 llm_call_logs 主键冲突
+- [x] **factory 读 `model_fallbacks`**：models.yaml 新增 list[str] 字段（同 provider 多 model）；`_build_primary_chain` 复用 cfg 的 auth/base_url 只换 model 名构造
+- [x] **5 个 agent 默认链**（写入 models.yaml + models.example.yaml）：
+  - agent_a/b/c/d: `claude-sonnet-4-6 → claude-opus-4-7 → claude-haiku-4-5-20251001 → [fallback] DeepSeek-V4-Pro`
+  - rejection_classifier: `claude-haiku-4-5 → claude-sonnet-4-6 → [fallback] DeepSeek-V4-Pro`
+- [x] **8 项 test_model_rotation.py**：rotate / 全 chain → fallback / permanent 立刻挂 / 首次成功 / chain exhausted 无 fallback / 向后兼容 / attempt_number 单调 / factory chain 构造；总 unit suite 361 passed
+
 ### 里程碑 4.1 — Domain 白名单（AI Agent / LLM / 机器人）✅ 已完成 2026-06-23
 
 - [x] **3 个领域 registry**：`app/services/crawl_domain.py::DOMAIN_REGISTRY`

@@ -19,6 +19,11 @@ agents:
   agent_a:
     provider: anthropic
     model: claude-sonnet-4-6
+    # 4.x: 同 provider 多 model 轮换 — 主 model 503 等 5xx 用尽 retry 后
+    # 切换到下一个 model 再试；整条链都失败才切 fallback provider
+    model_fallbacks:
+      - claude-opus-4-7
+      - claude-haiku-4-5-20251001
     api_key_env: ANTHROPIC_API_KEY
     base_url_env: ANTHROPIC_BASE_URL          # 可选，中转 API 时使用
     auth_token_env: ANTHROPIC_AUTH_TOKEN      # 可选，中转 API 时使用

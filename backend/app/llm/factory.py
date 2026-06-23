@@ -88,6 +88,28 @@ def _build_primary(cfg: dict[str, Any]) -> LLMClient:
     return _build_client(cfg, is_fallback=False)
 
 
+def _build_primary_chain(cfg: dict[str, Any]) -> list[LLMClient]:
+    """4.x: 同 provider 多 model 轮换。
+
+    cfg.model_fallbacks（可选）：list[str]，同 provider 下额外尝试的模型。
+    返回 [primary_client, model_fallback_1_client, ...]，is_fallback=False 全程。
+    向后兼容：缺省时返回单元素 [primary_client]。
+    """
+    chain: list[LLMClient] = [_build_primary(cfg)]
+    extra_models = cfg.get("model_fallbacks") or []
+    if not isinstance(extra_models, list):
+        raise ModelsYamlError("model_fallbacks must be a list of model strings")
+    for model_name in extra_models:
+        if not isinstance(model_name, str) or not model_name:
+            raise ModelsYamlError(
+                f"model_fallbacks entries must be non-empty strings, got {model_name!r}",
+            )
+        # 同 provider，只换 model；其他 auth/base_url 完全复用
+        rotated_cfg = {**cfg, "model": model_name}
+        chain.append(_build_client(rotated_cfg, is_fallback=False))
+    return chain
+
+
 def _build_fallback(cfg: dict[str, Any]) -> LLMClient | None:
     fb = cfg.get("fallback") or {}
     if not fb.get("enabled"):
@@ -148,7 +170,7 @@ def build_client(agent_name: AgentName) -> FallbackLLMClient:
     cfg = agents[agent_name]
 
     return FallbackLLMClient(
-        primary=_build_primary(cfg),
+        primary=_build_primary_chain(cfg),
         fallback=_build_fallback(cfg),
         retry=_build_retry(cfg),
     )
