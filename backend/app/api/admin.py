@@ -187,3 +187,77 @@ async def reload_models() -> dict[str, object]:
         ) from e
     agents = list((data.get("agents") or {}).keys())
     return {"reloaded": True, "agents": agents}
+
+
+# ---------------------------------------------------------------------------
+# 3.3: Blacklist 管理
+# ---------------------------------------------------------------------------
+
+
+from pydantic import BaseModel  # noqa: E402
+
+from app.services.blacklist_service import BlacklistService  # noqa: E402
+
+
+class BlacklistAddRequest(BaseModel):
+    entity_type: Literal["repo", "issue"]
+    pattern: str
+    reason: str | None = None
+    enabled: bool = True
+
+
+@router.get("/blacklist")
+async def list_blacklist(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, list[dict[str, object]]]:
+    rows = await BlacklistService(session).list_all()
+    return {
+        "items": [
+            {
+                "id": str(r.id),
+                "entity_type": r.entity_type,
+                "pattern": r.pattern,
+                "reason": r.reason,
+                "enabled": r.enabled,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/blacklist")
+async def add_blacklist(
+    payload: BlacklistAddRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    try:
+        row = await BlacklistService(session).add(
+            entity_type=payload.entity_type,
+            pattern=payload.pattern,
+            reason=payload.reason,
+            enabled=payload.enabled,
+        )
+        await session.commit()
+    except ValueError as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "INVALID_BLACKLIST", "message": str(e)},
+        ) from e
+    return {"id": str(row.id), "pattern": row.pattern}
+
+
+@router.delete("/blacklist/{blacklist_id}")
+async def delete_blacklist(
+    blacklist_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, bool]:
+    ok = await BlacklistService(session).delete(blacklist_id)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND"},
+        )
+    await session.commit()
+    return {"deleted": True}

@@ -248,12 +248,12 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] **Extended Thinking 支持**（2026-06-23）：`app/sandbox/extended_thinking.py::should_enable_extended_thinking` 按 (evaluation.difficulty 命中 `agent_b_extended_thinking_difficulties` 默认 "hard") 或 (attempt_number >= `agent_b_extended_thinking_min_attempt` 默认 2) 判定；dev_worker setup_phase 写 ENABLE_EXTENDED_THINKING env 到沙箱；entrypoint.sh 读 env 后用 `--append-system-prompt` 注入 "Before each tool call, briefly think step-by-step" 指令（Claude Code CLI 暂未暴露原生 thinking budget flag，先 prompt 层引导，模型 native thinking 后续 CLI 支持时切换）。7 项 test_extended_thinking.py
 - [x] **repo_profile 智能刷新**（2026-06-23）：`app/services/profile_refresh.py::maybe_force_refresh` 在 classify_worker 写完 style_mismatch + agent_b_attribution=yes 标签后调；近 30 天该 repo 同类计数 >= 3 → 设 RepoProfile.expires_at=now + forced_refresh_count++ + commit 后 send_task profile_queue（force=True）。E2E 实测：wanxb/c-drive-cleaner 当前 1 < 3 不触发，行为正确。3 项 test_profile_refresh.py
 
-### 里程碑 3.3 — 系统扩展
+### 里程碑 3.3 — 系统扩展 ✅ 已完成 2026-06-23（含 E2B deferred 决策）
 
-- [ ] E2B 沙箱切换（替代本地 Docker，提升启动速度）
-- [ ] 多 GitHub 账号支持（隔离不同项目的 PR 来源）
-- [ ] Issue 黑名单 / 仓库黑名单
-- [ ] 导出报告（周报：本周评估/开发/PR 汇总）
+- [deferred] **E2B 沙箱切换**：决策文档 `docs/SANDBOX_E2B_EVAL.md` 记录暂不切换的 4 条理由（启动速度占比 <2% 不是瓶颈 / 5 镜像构建已就位 / vendor lock-in / 月度成本）+ 4 个未来触发条件（task 量 >1000/月 / GUI 自动化 / SaaS 多租户 / E2B 50% 降价）+ 工作量评估（≈1 周）
+- [x] **多 GitHub 账号支持**（2026-06-23）：新表 `github_accounts`（name / role(crawler|dev|webhook) / token / username / enabled / last_used_at）+ migration `j0l4m0h4j0k0`；`GitHubAccountService` 提供 LRU 选择（无 sticky）或 sha1-modulo sticky-by-repo 选择；`scripts/manage_github_accounts.py` list/add/pick/enable/disable/delete 6 子命令 + token mask 显示。e2e 实测：sticky `owner/repo1` 确定性落到 dev-bot-2；LRU 在 2 账号下交替；5 项单测
+- [x] **Issue 黑名单 / 仓库黑名单**（2026-06-23）：新表 `blacklist`（entity_type repo|issue / pattern / reason / enabled）+ migration `i9k3l9g3i9j9`；`BlacklistService` 用 fnmatch glob 支持 `owner/*` `*/repo` `owner/repo#42` 等模式；CrawlerService 在 `_handle_repo_url` / `_handle_issue_url` / `from_target` 三个入口前置检查（manual 命中抛 Blacklisted 403，cron 命中 outcome.failures 记录跳过）；admin API `GET/POST/DELETE /api/v1/admin/blacklist` + CLI `scripts/manage_blacklist.py`。e2e 实测 `spammer/*` 命中 spammer/foo+spammer/bar，repo 黑等价 issue 黑（spammer/foo#1 也阻断）；16 项单测
+- [x] **导出报告**（2026-06-23）：`app/services/report_export.py::render_weekly_report_markdown` 把 `/dashboard/weekly-report` payload 渲染成 GitHub-flavor Markdown（总览 / Top 3 失败 / Agent 成本表 / 归因比例 / Issue 漏斗按 status 顺序 / PR 终态 6 个 section）；`GET /api/v1/dashboard/weekly-report.md` 返 PlainTextResponse；CLI `scripts/export_weekly_report.py [--days 7] [--out reports/] [--stdout]` 落盘 `reports/weekly-YYYY-MM-DD.md`。e2e 实测产出 ~1.5KB 完整 Markdown；7 项单测
 
 ---
 

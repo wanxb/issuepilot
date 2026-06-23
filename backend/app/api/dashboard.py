@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -473,3 +474,20 @@ async def agent_quality(
             ),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# 3.3: 周报 Markdown 导出
+# ---------------------------------------------------------------------------
+
+
+@router.get("/weekly-report.md", response_class=PlainTextResponse)
+async def weekly_report_markdown(
+    days: int = Query(default=7, ge=1, le=90),
+    session: AsyncSession = Depends(get_session),
+) -> str:
+    """同 weekly-report，但返回 Markdown 文本。"""
+    from app.services.report_export import render_weekly_report_markdown
+
+    payload = await weekly_report(days=days, session=session)
+    return render_weekly_report_markdown(payload)

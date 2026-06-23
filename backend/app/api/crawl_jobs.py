@@ -20,6 +20,7 @@ from app.github.client import GitHubClient
 from app.models.crawl_job import CrawlJob
 from app.schemas.crawl import ManualSubmitRequest, ManualSubmitResponse
 from app.services.crawler_service import (
+    Blacklisted,
     ConfirmationRequired,
     CrawlerService,
     InvalidUrlError,
@@ -103,6 +104,13 @@ async def submit_manual(
                 "max_issues": e.max_issues,
                 "repo_full_name": e.repo_full_name,
             },
+        ) from e
+    except Blacklisted as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": e.code, "message": str(e),
+                    "pattern": e.pattern},
         ) from e
     finally:
         await github.aclose()

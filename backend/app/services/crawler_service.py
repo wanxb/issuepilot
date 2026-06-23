@@ -69,6 +69,14 @@ class RateLimited(CrawlerError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class Blacklisted(CrawlerError):
+    code = "BLACKLISTED"
+
+    def __init__(self, message: str, *, pattern: str) -> None:
+        super().__init__(message)
+        self.pattern = pattern
+
+
 class ConfirmationRequired(CrawlerError):
     code = "CONFIRMATION_REQUIRED"
 
@@ -235,11 +243,24 @@ class CrawlerService:
             raise
 
         outcome.repos_attempted = len(repo_full_names)
+        # 3.3: 黑名单一次性预加载，避免每个 repo 都查 DB
+        from app.services.blacklist_service import BlacklistService
+
+        bl = BlacklistService(self._s)
+        repo_bl = await bl.list_enabled(entity_type="repo")
+
         for full_name in repo_full_names:
             try:
                 owner, name = full_name.split("/", 1)
             except ValueError:
                 outcome.failures[full_name] = "invalid_full_name"
+                continue
+            # 3.3: 检黑名单
+            from app.services.blacklist_service import _match
+            hit = next((r for r in repo_bl if _match(r.pattern, full_name)), None)
+            if hit is not None:
+                outcome.failures[full_name] = f"blacklisted:{hit.pattern}"
+                outcome.repos_failed += 1
                 continue
             try:
                 gh_repo = await self._gh.get_repo(owner, name)
@@ -310,6 +331,19 @@ class CrawlerService:
         self, parsed: ParsedURL, job: CrawlJob,
     ) -> ManualCrawlOutcome:
         assert parsed.issue_number is not None
+
+        # 3.3: 黑名单前置（避免对已知毒源做 API 调用）
+        from app.services.blacklist_service import BlacklistService
+
+        bl = BlacklistService(self._s)
+        full = f"{parsed.owner}/{parsed.repo}"
+        blocked, pat = await bl.is_issue_blacklisted(full, parsed.issue_number)
+        if blocked:
+            raise Blacklisted(
+                f"{full}#{parsed.issue_number} matches blacklist pattern {pat!r}",
+                pattern=pat or "",
+            )
+
         gh_repo = await self._fetch_repo(parsed)
         repo = await self._upsert_repo(gh_repo)
 
@@ -343,6 +377,18 @@ class CrawlerService:
         max_issues: int,
         force_confirm: bool,
     ) -> ManualCrawlOutcome:
+        # 3.3: 黑名单前置
+        from app.services.blacklist_service import BlacklistService
+
+        bl = BlacklistService(self._s)
+        full = f"{parsed.owner}/{parsed.repo}"
+        blocked, pat = await bl.is_repo_blacklisted(full)
+        if blocked:
+            raise Blacklisted(
+                f"{full} matches blacklist pattern {pat!r}",
+                pattern=pat or "",
+            )
+
         gh_repo = await self._fetch_repo(parsed)
         repo = await self._upsert_repo(gh_repo)
 

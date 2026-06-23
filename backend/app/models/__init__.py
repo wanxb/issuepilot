@@ -3,12 +3,14 @@
 在此显式 import 每个模型类，让 alembic autogenerate 通过 Base.metadata 感知到。
 新增模型时在这里 + alembic/env.py 各加一行 import。
 """
+from app.models.blacklist import Blacklist
 from app.models.crawl_job import CrawlJob
 from app.models.crawl_target import CrawlTarget
 from app.models.dev_log import DevLog
 from app.models.dev_task import DevTask
 from app.models.eval_sample import EvalSample
 from app.models.evaluation import Evaluation
+from app.models.github_account import GitHubAccount
 from app.models.issue import Issue
 from app.models.llm_call_log import LLMCallLog
 from app.models.pr_outcome import PROutcome
@@ -19,12 +21,14 @@ from app.models.repository import Repository
 from app.models.review_task import ReviewTask
 
 __all__ = [
+    "Blacklist",
     "CrawlJob",
     "CrawlTarget",
     "DevLog",
     "DevTask",
     "EvalSample",
     "Evaluation",
+    "GitHubAccount",
     "Issue",
     "LLMCallLog",
     "PROutcome",
