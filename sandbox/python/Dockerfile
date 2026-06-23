@@ -32,8 +32,11 @@ RUN useradd --create-home --shell /bin/bash agent
 
 # 共享脚本（从 sandbox/shared/ 复制）
 COPY --chown=agent:agent shared/mcp_report_server.py /opt/issuepilot/mcp_report_server.py
+COPY --chown=agent:agent shared/apply_devcontainer.py /opt/issuepilot/apply_devcontainer.py
 COPY --chown=agent:agent shared/entrypoint.sh /opt/issuepilot/entrypoint.sh
-RUN chmod +x /opt/issuepilot/entrypoint.sh /opt/issuepilot/mcp_report_server.py
+RUN chmod +x /opt/issuepilot/entrypoint.sh \
+        /opt/issuepilot/mcp_report_server.py \
+        /opt/issuepilot/apply_devcontainer.py
 
 # 工作区 + 缓存目录（runtime 由 host volume 挂载覆盖）
 RUN mkdir -p /workspace /cache/pip /cache/npm \

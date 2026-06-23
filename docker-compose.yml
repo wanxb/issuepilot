@@ -57,6 +57,7 @@ services:
       - ./backend:/app
       - backend_venv:/opt/venv   # 隔离容器 venv，避免被主机覆盖
       - ./scripts:/scripts:ro    # 2.2: 让管理脚本可在容器内运行
+      - ./sandbox:/sandbox:ro    # 3.2: 让测试能读 sandbox/shared/apply_devcontainer.py
     depends_on:
       postgres:
         condition: service_healthy

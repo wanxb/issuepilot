@@ -47,6 +47,33 @@ cat > /workspace/.mcp.json << 'MCPEOF'
 }
 MCPEOF
 
+# 3.2: devcontainer.json 轻量支持
+# 检测 .devcontainer/devcontainer.json，注入 containerEnv，跑 postCreateCommand
+HAS_DEVCONTAINER=0
+DEVCONTAINER_NAME=""
+DEVCONTAINER_POSTCREATECOMMAND=""
+DEVCONTAINER_POSTSTARTCOMMAND=""
+DEVCONTAINER_OUTPUT="$(python /opt/issuepilot/apply_devcontainer.py 2>/workspace/.devcontainer.err || true)"
+if [ -n "${DEVCONTAINER_OUTPUT}" ]; then
+  # eval 注入 env / 变量（apply_devcontainer.py 只输出 key=value / export 行）
+  eval "${DEVCONTAINER_OUTPUT}"
+fi
+if [ "${HAS_DEVCONTAINER:-0}" = "1" ]; then
+  echo "=== SETUP: devcontainer detected${DEVCONTAINER_NAME:+ (${DEVCONTAINER_NAME})} ==="
+  if [ -n "${DEVCONTAINER_POSTCREATECOMMAND:-}" ]; then
+    echo "=== SETUP: running postCreateCommand: ${DEVCONTAINER_POSTCREATECOMMAND} ==="
+    bash -c "${DEVCONTAINER_POSTCREATECOMMAND}" 2>&1 | head -200 || \
+      echo "=== SETUP: postCreateCommand exited non-zero (best-effort, continuing) ==="
+  fi
+  if [ -n "${DEVCONTAINER_POSTSTARTCOMMAND:-}" ]; then
+    echo "=== SETUP: running postStartCommand: ${DEVCONTAINER_POSTSTARTCOMMAND} ==="
+    bash -c "${DEVCONTAINER_POSTSTARTCOMMAND}" 2>&1 | head -200 || \
+      echo "=== SETUP: postStartCommand exited non-zero (best-effort, continuing) ==="
+  fi
+  # 告诉 Agent B 仓库 devcontainer 已就绪
+  export AGENT_B_HAS_DEVCONTAINER=1
+fi
+
 # 3.2: Extended Thinking 切换
 # ENABLE_EXTENDED_THINKING=1 时在系统提示尾部追加 "think step-by-step" 指令
 # （Claude Code CLI 暂未暴露原生 thinking budget flag，用 prompt 层引导）

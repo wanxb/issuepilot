@@ -23,8 +23,11 @@ ENV PATH="/opt/mcp-venv/bin:${PATH}"
 RUN useradd --create-home --shell /bin/bash agent
 
 COPY --chown=agent:agent shared/mcp_report_server.py /opt/issuepilot/mcp_report_server.py
+COPY --chown=agent:agent shared/apply_devcontainer.py /opt/issuepilot/apply_devcontainer.py
 COPY --chown=agent:agent shared/entrypoint.sh /opt/issuepilot/entrypoint.sh
-RUN chmod +x /opt/issuepilot/entrypoint.sh /opt/issuepilot/mcp_report_server.py
+RUN chmod +x /opt/issuepilot/entrypoint.sh \
+        /opt/issuepilot/mcp_report_server.py \
+        /opt/issuepilot/apply_devcontainer.py
 
 # 工作区 + 缓存目录
 RUN mkdir -p /workspace /cache/npm /cache/pnpm /cache/yarn \
