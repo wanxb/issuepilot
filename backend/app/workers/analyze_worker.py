@@ -124,11 +124,28 @@ async def _analyze_issue_async(issue_id: uuid.UUID) -> dict[str, object]:
                 issue_id=issue.id,
                 prompt_version=agent.prompt_version,
             )
+
+            # 4.x: 自动忽略低分（避免堵塞 PENDING_DECISION 列表）
+            auto_ignored = False
+            from app.core.config import get_settings
+            if get_settings().auto_ignore_low_score \
+                    and not output.is_worth_developing:
+                try:
+                    await svc.decide(issue, action="ignore")
+                    auto_ignored = True
+                except Exception as e:
+                    log.warning(
+                        "analyze_worker.auto_ignore_failed",
+                        issue_id=str(issue_id), error=str(e)[:200],
+                    )
+
             log.info(
                 "analyze_worker.done",
                 issue_id=str(issue_id),
                 evaluation_id=str(evaluation.id),
                 total_score=output.total_score,
+                worth=output.is_worth_developing,
+                auto_ignored=auto_ignored,
                 provider=llm_resp.provider,
                 is_fallback=llm_resp.is_fallback,
             )
@@ -136,6 +153,7 @@ async def _analyze_issue_async(issue_id: uuid.UUID) -> dict[str, object]:
                 "evaluation_id": str(evaluation.id),
                 "total_score": output.total_score,
                 "is_worth_developing": output.is_worth_developing,
+                "auto_ignored": auto_ignored,
                 "is_fallback": llm_resp.is_fallback,
             }
 

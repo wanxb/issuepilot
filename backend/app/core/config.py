@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # 3.2 Extended Thinking：当 evaluation.difficulty 命中 or attempt > 1 启用
     agent_b_extended_thinking_difficulties: str = "hard"   # 逗号分隔
     agent_b_extended_thinking_min_attempt: int = 2          # >=2 时启用（即 retry）
+
+    # 4.x: Agent A 评分 < 6.5（is_worth_developing=false）自动 IGNORED，
+    # 不再卡在 PENDING_DECISION 列表里需要人工 ignore。可通过环境变量关闭。
+    auto_ignore_low_score: bool = True
     sandbox_cache_dir: str = "./.sandbox_cache"
     sandbox_workspace_dir: str = "./.sandbox_workspaces"
 

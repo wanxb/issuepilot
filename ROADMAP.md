@@ -227,6 +227,13 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 
 ## Phase 4 — 抓取算法升级（按领域定向）
 
+### 里程碑 4.3 — 低分自动归档 ✅ 已完成 2026-06-23
+
+- [x] **Settings.auto_ignore_low_score**（默认 true，env `AUTO_IGNORE_LOW_SCORE=false` 可关）
+- [x] **analyze_worker 评估完追加判定**：`finish_analyzing` 写 evaluation + 转 PENDING_DECISION 后，若 `is_worth_developing=false`（即 total_score < 6.5）→ 立即 `svc.decide(action="ignore")` → IGNORED，不再卡看板
+- [x] **历史 backfill 一次性**：85 个旧 PENDING_DECISION + worth=false 一并清成 IGNORED；终态 PENDING_DECISION 留下 114 个真值得做的 issue（avg score 7.64）
+- [x] **3 项 test_auto_ignore.py**：settings 默认 + env override + state machine 允许 PENDING_DECISION → IGNORED；总 unit suite 365 passed
+
 ### 里程碑 4.2 — 同 provider 多 model 轮换（穷尽再换厂商）✅ 已完成 2026-06-23
 
 - [x] **FallbackLLMClient 接受 primary_chain**：`__init__` 同时支持 `primary: LLMClient`（向后兼容）和 `primary: list[LLMClient]`（新）；`primary_chain` 属性始终是 list 形式
