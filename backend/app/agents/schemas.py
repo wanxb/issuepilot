@@ -143,6 +143,8 @@ class AgentCInput(BaseModel):
     # 1.5c 注入：repo_profile.code_style_notes（空串表示无 profile）
     repo_style_notes: str = ""
     repo_contributing_summary: str = ""
+    # 3.2 注入：scope_check 提示（空串表示无可疑 / 关闭检查）
+    scope_warning: str = ""
 
 
 class ReviewDimension(BaseModel):

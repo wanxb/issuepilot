@@ -70,6 +70,8 @@ class DevTask(Base, UUIDPKMixin, TimestampMixin):
 
     # 测试结果（与 AgentBOutput 对齐）
     test_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # 3.2: 修改影响范围检查结果（scope_check.py 输出）
+    scope_check: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     # Loop 元数据
     loop_iterations: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

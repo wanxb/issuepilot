@@ -155,6 +155,18 @@ async def _review_dev_task_async(
             style_notes = profile.code_style_notes if profile else ""
             contributing_summary = profile.contributing_summary if profile else ""
 
+            # 3.2: scope_check 提示
+            scope_warning = ""
+            if dev_task.scope_check and dev_task.scope_check.get("suspicious"):
+                refs = dev_task.scope_check.get("referenced_in_issue") or []
+                files = dev_task.scope_check.get("files_changed") or []
+                scope_warning = (
+                    f"Suspected scope mismatch: issue / evaluation referenced "
+                    f"{refs[:5]} but Agent B changed {files[:5]}. "
+                    f"Verify the changes truly address the issue rather than "
+                    f"creeping into unrelated areas."
+                )
+
             agent_input_kwargs = {
                 "issue_title": issue.title,
                 "issue_body": _truncate_body(issue.body),
@@ -168,6 +180,7 @@ async def _review_dev_task_async(
                 "previous_rejections": [],  # 2.3 携带历次 rejection
                 "repo_style_notes": style_notes,
                 "repo_contributing_summary": contributing_summary,
+                "scope_warning": scope_warning,
             }
             empty_diff = not agent_input_kwargs["diff_content"].strip()
 

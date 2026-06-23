@@ -125,6 +125,10 @@ def build_user_message(input: AgentCInput) -> str:
     files_list = "\n".join(f"  - {f}" for f in input.files_changed) or "  (none)"
     tr = input.test_result
 
+    scope_block = ""
+    if input.scope_warning:
+        scope_block = f"\n<scope_warning>\n{input.scope_warning}\n</scope_warning>\n"
+
     return textwrap.dedent(f"""
         <repo_metadata>
         full_name: {input.repo_full_name}
@@ -135,6 +139,7 @@ def build_user_message(input: AgentCInput) -> str:
         <repo_conventions>
         {_format_repo_conventions(input)}
         </repo_conventions>
+        {scope_block}
 
         <issue_metadata>
         title: {input.issue_title}

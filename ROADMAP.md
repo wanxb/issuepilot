@@ -240,13 +240,13 @@ proxy 故障时 fallback 全程自动接管，4 行 llm_call_logs 完整审计�
 - [x] 4 项 test_eval_routes.py（router 注册 + EvalSample 模型 + 字段构造 + 路径覆盖）；总 unit suite 249 passed
 - [x] e2e: weekly-report 实拉 84 calls / $0.038346 / 1 top failure mode；agent-quality 实拉 1 dev_task SUCCEEDED Python primary / 1 APPROVED review；dry-run eval_agent_a 输出 1 行 JSON
 
-### 里程碑 3.2 — Agent B 能力增强
+### 里程碑 3.2 — Agent B 能力增强（部分完成）
 
 - [ ] devcontainer.json 支持（使用仓库自定义开发环境）
 - [ ] 多步测试策略（unit → integration → e2e 按需运行）
-- [ ] 修改影响范围分析（避免过宽修改）
-- [ ] Extended Thinking 支持（复杂问题启用）
-- [ ] **repo_profile 智能刷新**：基于 `rejection_reasons` 中 style_mismatch 频率自动触发强制刷新（已在 1.5 上数据基础，本期上策略）
+- [x] **修改影响范围分析**（2026-06-23）：`app/sandbox/scope_check.py` 用启发式正则从 issue body + evaluation summary 抽看似文件路径的 token，与 dev_task.files_changed 做 basename 大小写不敏感比对；suspicious 触发 = 都非空 + 完全无 basename 重叠。dev_worker 成功路径写 `dev_tasks.scope_check` JSONB；review_worker 把警告注入 AgentCInput.scope_warning → Agent C prompt `<scope_warning>` XML 块。migration `h8j2k8f2h8i8`。13 项 test_scope_check.py
+- [x] **Extended Thinking 支持**（2026-06-23）：`app/sandbox/extended_thinking.py::should_enable_extended_thinking` 按 (evaluation.difficulty 命中 `agent_b_extended_thinking_difficulties` 默认 "hard") 或 (attempt_number >= `agent_b_extended_thinking_min_attempt` 默认 2) 判定；dev_worker setup_phase 写 ENABLE_EXTENDED_THINKING env 到沙箱；entrypoint.sh 读 env 后用 `--append-system-prompt` 注入 "Before each tool call, briefly think step-by-step" 指令（Claude Code CLI 暂未暴露原生 thinking budget flag，先 prompt 层引导，模型 native thinking 后续 CLI 支持时切换）。7 项 test_extended_thinking.py
+- [x] **repo_profile 智能刷新**（2026-06-23）：`app/services/profile_refresh.py::maybe_force_refresh` 在 classify_worker 写完 style_mismatch + agent_b_attribution=yes 标签后调；近 30 天该 repo 同类计数 >= 3 → 设 RepoProfile.expires_at=now + forced_refresh_count++ + commit 后 send_task profile_queue（force=True）。E2E 实测：wanxb/c-drive-cleaner 当前 1 < 3 不触发，行为正确。3 项 test_profile_refresh.py
 
 ### 里程碑 3.3 — 系统扩展
 

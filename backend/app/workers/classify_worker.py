@@ -148,6 +148,29 @@ async def _classify_async(reason_id: uuid.UUID) -> dict[str, object]:
                 prompt_version=agent.prompt_version,
             )
 
+            # 3.2: 智能刷新 RepoProfile（commit 在 session_scope 出口）
+            refresh_decision: dict[str, object] = {}
+            if reason.category == RejectionCategory.STYLE_MISMATCH and \
+               reason.agent_b_attribution == AgentBAttribution.YES:
+                from app.services.profile_refresh import maybe_force_refresh
+                refresh_decision = await maybe_force_refresh(
+                    s, issue_id=issue_id,
+                )
+
+        # 3.2: commit 后入队 profile 强刷
+        if refresh_decision.get("triggered"):
+            celery_app.send_task(
+                "app.workers.profile_worker.generate_profile",
+                args=[str(refresh_decision["repo_id"])],
+                kwargs={"force": True},
+                queue="profile_queue",
+            )
+            log.info(
+                "classify_worker.profile_refresh_dispatched",
+                repo_id=refresh_decision["repo_id"],
+                style_count=refresh_decision["count"],
+            )
+
         log.info(
             "classify_worker.done",
             reason_id=str(reason_id),

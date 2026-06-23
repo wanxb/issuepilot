@@ -215,6 +215,18 @@ async def _setup_phase(
             settings, use_fallback=dev_task.use_fallback_provider,
         )
 
+        # 3.2 Extended Thinking 切换
+        from app.sandbox.extended_thinking import should_enable_extended_thinking
+        eval_difficulty = (
+            evaluation.difficulty if evaluation and evaluation.difficulty else None
+        )
+        ext_enabled, ext_reason = should_enable_extended_thinking(
+            evaluation_difficulty=eval_difficulty,
+            attempt_number=dev_task.attempt_number or 1,
+            enable_difficulties_raw=settings.agent_b_extended_thinking_difficulties,
+            min_attempt=settings.agent_b_extended_thinking_min_attempt,
+        )
+
         env: dict[str, str] = {
             "REPO_FULL_NAME": forked_repo,
             "BRANCH_NAME": branch_name,
@@ -224,8 +236,14 @@ async def _setup_phase(
             "CLAUDE_MODEL": model_label,
             "MAX_TURNS": str(settings.agent_b_max_turns),
             "DISABLE_AUTOUPDATER": "1",
+            "ENABLE_EXTENDED_THINKING": "1" if ext_enabled else "0",
             **llm_env,
         }
+        log.info(
+            "dev_worker.extended_thinking",
+            issue_id=str(issue_id),
+            enabled=ext_enabled, reason=ext_reason,
+        )
 
         # 状态转换
         svc = IssueService(s)
@@ -497,6 +515,23 @@ async def _result_phase(
                     "new_tests_added": output.new_tests_added,
                     "test_output_snippet": output.test_output_snippet,
                 }
+                # 3.2: 修改影响范围检查
+                from app.sandbox.scope_check import scope_check
+                eval_summary_text = (
+                    issue.evaluation.summary if issue.evaluation else None
+                )
+                dev_task.scope_check = scope_check(
+                    files_changed=output.files_changed,
+                    issue_body=issue.body,
+                    evaluation_summary=eval_summary_text,
+                )
+                if dev_task.scope_check.get("suspicious"):
+                    log.warning(
+                        "dev_worker.scope_check_suspicious",
+                        issue_id=str(issue_id),
+                        files_changed=output.files_changed,
+                        referenced=dev_task.scope_check.get("referenced_in_issue"),
+                    )
             dev_task.status = DevTaskStatus.SUCCEEDED
             try:
                 await svc.mark_dev_testing(issue)

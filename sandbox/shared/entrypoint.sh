@@ -47,7 +47,16 @@ cat > /workspace/.mcp.json << 'MCPEOF'
 }
 MCPEOF
 
-echo "=== SYSTEM: starting Agent B (model=${CLAUDE_MODEL:-claude-sonnet-4-6}, max_turns=${MAX_TURNS:-25}) ==="
+# 3.2: Extended Thinking 切换
+# ENABLE_EXTENDED_THINKING=1 时在系统提示尾部追加 "think step-by-step" 指令
+# （Claude Code CLI 暂未暴露原生 thinking budget flag，用 prompt 层引导）
+APPEND_FLAGS=()
+if [ "${ENABLE_EXTENDED_THINKING:-0}" = "1" ]; then
+  echo "=== SYSTEM: extended thinking ENABLED ==="
+  APPEND_FLAGS+=(--append-system-prompt "Before each tool call, briefly think step-by-step about: (a) which file change is most likely to fix the root cause, (b) what could break, (c) the smallest change that satisfies the issue. Prefer one or two precise edits over many speculative ones.")
+fi
+
+echo "=== SYSTEM: starting Agent B (model=${CLAUDE_MODEL:-claude-sonnet-4-6}, max_turns=${MAX_TURNS:-25}, ext_thinking=${ENABLE_EXTENDED_THINKING:-0}) ==="
 
 # base64 -d 解码 prompt，通过 stdin 传给 claude（避免命令行特殊字符问题）
 echo "${AGENT_PROMPT_B64}" | base64 -d | claude -p - \
@@ -57,7 +66,8 @@ echo "${AGENT_PROMPT_B64}" | base64 -d | claude -p - \
   --verbose \
   --allowedTools "Read,Write,Edit,Bash,Glob,Grep,mcp__issuepilot-agent-b-terminator__report_completion,mcp__issuepilot-agent-b-terminator__report_failure" \
   --permission-mode acceptEdits \
-  --mcp-config /workspace/.mcp.json
+  --mcp-config /workspace/.mcp.json \
+  "${APPEND_FLAGS[@]}"
 
 EXIT_CODE=$?
 echo "=== SYSTEM: Agent B finished (exit=${EXIT_CODE}) ==="
